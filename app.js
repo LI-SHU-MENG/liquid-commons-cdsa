@@ -21,14 +21,14 @@ const TARGET_ASPECT=TARGET_WIDTH/TARGET_HEIGHT;
 const saved=JSON.parse(localStorage.getItem('liquidCommonsHorizons')||'{}');
 const horizons=Object.fromEntries(images.map(f=>[f,saved[f]??0.5]));
 let current=0, playback=false, startTime=performance.now();
-let totalDuration=120, morphStrength=0.050;
+let totalDuration=150, morphStrength=0.050;
 let recording=false;
 
 const stage=document.querySelector('#stage');
-const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});
+const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true,alpha:false});
 renderer.setPixelRatio(Math.min(devicePixelRatio,2));
 renderer.outputColorSpace=THREE.SRGBColorSpace;
-renderer.setClearColor(0x000000,1);
+renderer.setClearColor(0x111111,1);
 stage.appendChild(renderer.domElement);
 const scene=new THREE.Scene();
 const camera=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
@@ -43,34 +43,38 @@ const material=new THREE.ShaderMaterial({
     vec2 sourceUV(vec2 uv,float horizon,float srcAspect,float phase){
       float visible=srcAspect/uTargetAspect;
       float d=uv.y-.5;
-      float horizonMask=pow(clamp(abs(d)*2.0,0.0,1.0),1.45);
+      float horizonMask=pow(clamp(abs(d)*2.0,0.0,1.0),1.55);
 
-      // Very subtle horizontal current. No vertical displacement: horizon stays locked.
-      float wave=sin(uv.y*14.0+uTime*.10+phase)
-               +0.35*sin(uv.y*29.0-uTime*.06+phase*1.4);
-      float x=uv.x + (0.004 + wave*uStrength*.035)*horizonMask;
+      // A restrained horizontal current only. The calibrated horizon never moves vertically.
+      float wave=sin(uv.y*12.0+uTime*.055+phase)
+               +0.30*sin(uv.y*27.0-uTime*.035+phase*1.35);
+      float x=uv.x + wave*uStrength*.022*horizonMask;
       float y=horizon+d*visible;
-      return vec2(clamp(x,0.001,.999),clamp(y,0.001,.999));
+      return vec2(clamp(x,0.002,.998),clamp(y,0.002,.998));
     }
 
     void main(){
       float m=clamp(uMix,0.0,1.0);
       float horizonDist=abs(vUv.y-.5);
 
-      // A broad, soft transition front travels left to right.
-      // Both photographs remain present throughout the transition: no black gap or hard push.
-      float front=-0.30 + m*1.60;
-      float organic=(0.018*sin(vUv.y*16.0+uTime*.08)
-                    +0.010*sin(vUv.y*33.0-uTime*.045)
-                    +0.005*sin(vUv.x*6.0+vUv.y*13.0));
-      organic*=smoothstep(0.02,0.42,horizonDist);
-      float soft=0.28;
+      // One continuous transition: it starts immediately and only finishes
+      // on the exact last frame of the segment, so there is no hold between images.
+      float soft=0.34;
+      float front=mix(-0.42,1.42,m);
+      float organic=(0.014*sin(vUv.y*15.0+uTime*.045)
+                    +0.008*sin(vUv.y*31.0-uTime*.028)
+                    +0.004*sin(vUv.x*5.0+vUv.y*11.0));
+      organic*=smoothstep(0.025,0.44,horizonDist);
+
       float localMix=1.0-smoothstep(front-soft,front+soft,vUv.x+organic);
+      localMix=clamp(localMix,0.0,1.0);
 
       vec2 uvA=sourceUV(vUv,uHorizonA,uSourceAspectA,0.0);
-      vec2 uvB=sourceUV(vUv,uHorizonB,uSourceAspectB,1.1);
+      vec2 uvB=sourceUV(vUv,uHorizonB,uSourceAspectB,0.9);
       vec4 a=texture2D(uA,uvA);
       vec4 b=texture2D(uB,uvB);
+
+      // Pure two-image interpolation: no dark overlay, no empty gap, no edge push.
       gl_FragColor=mix(a,b,localMix);
     }`
 });
@@ -78,15 +82,26 @@ scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2),material));
 
 const textures=new Array(images.length).fill(null);
 const loader=new THREE.TextureLoader();
-function prepTexture(tex){tex.colorSpace=THREE.SRGBColorSpace;tex.minFilter=THREE.LinearFilter;tex.magFilter=THREE.LinearFilter;return tex}
+function prepTexture(tex){
+  tex.colorSpace=THREE.SRGBColorSpace;
+  tex.minFilter=THREE.LinearFilter;
+  tex.magFilter=THREE.LinearFilter;
+  tex.wrapS=THREE.ClampToEdgeWrapping;
+  tex.wrapT=THREE.ClampToEdgeWrapping;
+  return tex;
+}
 function texAspect(t){return t?.image?.width&&t?.image?.height?t.image.width/t.image.height:1.333}
 function setPair(a,b,m=0){
-  const ta=textures[a], tb=textures[b]||ta;
+  const ta=textures[a];
+  const tb=textures[b]||ta;
   if(!ta) return false;
-  material.uniforms.uA.value=ta; material.uniforms.uB.value=tb;
+  material.uniforms.uA.value=ta;
+  material.uniforms.uB.value=tb;
   material.uniforms.uMix.value=m;
-  material.uniforms.uHorizonA.value=horizons[images[a]]; material.uniforms.uHorizonB.value=horizons[images[b]];
-  material.uniforms.uSourceAspectA.value=texAspect(ta); material.uniforms.uSourceAspectB.value=texAspect(tb);
+  material.uniforms.uHorizonA.value=horizons[images[a]];
+  material.uniforms.uHorizonB.value=horizons[images[b]];
+  material.uniforms.uSourceAspectA.value=texAspect(ta);
+  material.uniforms.uSourceAspectB.value=texAspect(tb);
   return true;
 }
 
@@ -114,25 +129,46 @@ const recordBtn=document.querySelector('#recordBtn');
 const recordStatus=document.querySelector('#recordStatus');
 
 function updateUI(){
-  slider.value=horizons[images[current]]; value.textContent=(+slider.value).toFixed(3);
-  filename.textContent=images[current]; counter.textContent=`${current+1} / ${images.length}`;
+  slider.value=horizons[images[current]];
+  value.textContent=(+slider.value).toFixed(3);
+  filename.textContent=images[current];
+  counter.textContent=`${current+1} / ${images.length}`;
   setPair(current,current,0);
 }
 slider.addEventListener('input',()=>{
-  horizons[images[current]]=+slider.value; value.textContent=(+slider.value).toFixed(3);
-  localStorage.setItem('liquidCommonsHorizons',JSON.stringify(horizons)); setPair(current,current,0);
+  horizons[images[current]]=+slider.value;
+  value.textContent=(+slider.value).toFixed(3);
+  localStorage.setItem('liquidCommonsHorizons',JSON.stringify(horizons));
+  setPair(current,current,0);
 });
 document.querySelector('#prevBtn').onclick=()=>{current=(current-1+images.length)%images.length;updateUI()};
 document.querySelector('#nextBtn').onclick=()=>{current=(current+1)%images.length;updateUI()};
 durationInput.value=totalDuration;
 durationInput.oninput=e=>{
-  totalDuration=Math.max(12,+e.target.value||120);
+  totalDuration=Math.max(12,+e.target.value||150);
   recordBtn.textContent=`Record ${totalDuration}s`;
 };
-morphInput.value=morphStrength; morphValue.textContent=morphStrength.toFixed(3);
-morphInput.oninput=e=>{morphStrength=+e.target.value;material.uniforms.uStrength.value=morphStrength;morphValue.textContent=morphStrength.toFixed(3)};
-document.querySelector('#playBtn').onclick=()=>{playback=true;document.body.classList.add('playback');startTime=performance.now();resize()};
-document.querySelector('#exitPlayback').onclick=()=>{if(recording)return;playback=false;document.body.classList.remove('playback');current=0;updateUI();resize()};
+morphInput.value=morphStrength;
+morphValue.textContent=morphStrength.toFixed(3);
+morphInput.oninput=e=>{
+  morphStrength=+e.target.value;
+  material.uniforms.uStrength.value=morphStrength;
+  morphValue.textContent=morphStrength.toFixed(3);
+};
+document.querySelector('#playBtn').onclick=()=>{
+  playback=true;
+  document.body.classList.add('playback');
+  startTime=performance.now();
+  resize();
+};
+document.querySelector('#exitPlayback').onclick=()=>{
+  if(recording)return;
+  playback=false;
+  document.body.classList.remove('playback');
+  current=0;
+  updateUI();
+  resize();
+};
 
 function getRecorderMime(){
   const candidates=[
@@ -204,7 +240,8 @@ recordBtn.onclick=async()=>{
   setTimeout(()=>{if(recorder.state!=='inactive')recorder.stop()},totalDuration*1000+120);
 };
 
-resize(); updateUI();
+resize();
+updateUI();
 function loop(now){
   const elapsed=(now-startTime)/1000;
   material.uniforms.uTime.value=playback?elapsed:now/1000;
@@ -214,13 +251,14 @@ function loop(now){
     const a=Math.floor(t/segment)%images.length;
     const b=(a+1)%images.length;
     const p=(t-a*segment)/segment;
-    const smooth=p*p*(3-2*p);
-    const blend=p*0.70+smooth*0.30;
+    const blend=p;
     if(!setPair(a,b,blend)){
       const fallback=textures.findIndex(Boolean);
       if(fallback>=0) setPair(fallback,fallback,0);
     }
-  } else if(!material.uniforms.uA.value && textures[current]) setPair(current,current,0);
+  } else if(!material.uniforms.uA.value && textures[current]) {
+    setPair(current,current,0);
+  }
   renderer.render(scene,camera);
   requestAnimationFrame(loop);
 }
