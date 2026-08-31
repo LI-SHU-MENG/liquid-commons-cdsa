@@ -187,10 +187,14 @@ window.addEventListener('resize', resize);
 // IMAGE ANALYSIS + SOUND
 // ------------------------------------------------------------
 const DEFAULT_FEATURES = {
-  brightness: 0.5,
-  saturation: 0.3,
-  warmth: 0.5,
-  edgeDensity: 0.15,
+  skyBrightness: 0.6,
+  skySaturation: 0.25,
+  skyWarmth: 0.5,
+  skyEdgeDensity: 0.08,
+  seaBrightness: 0.4,
+  seaSaturation: 0.35,
+  seaWarmth: 0.5,
+  seaEdgeDensity: 0.18,
   horizonContrast: 0.12
 };
 const imageFeatures = {};
@@ -206,12 +210,15 @@ let harmonicGain = null;
 let seaNoise = null;
 let seaFilter = null;
 let seaGain = null;
+let seaSwellGain = null;
+let seaSwellOsc = null;
+let seaSwellDepth = null;
 let skyNoise = null;
 let skyFilter = null;
 let skyGain = null;
 let skyPan = null;
 
-function createNoiseBuffer(ctx, seconds = 3, brown = false) {
+function createNoiseBuffer(ctx, seconds = 4, brown = false) {
   const length = Math.floor(ctx.sampleRate * seconds);
   const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
   const data = buffer.getChannelData(0);
@@ -220,9 +227,9 @@ function createNoiseBuffer(ctx, seconds = 3, brown = false) {
     const white = Math.random() * 2 - 1;
     if (brown) {
       last = (last + 0.018 * white) / 1.018;
-      data[i] = last * 3.2;
+      data[i] = last * 3.0;
     } else {
-      data[i] = white * 0.55;
+      data[i] = white * 0.45;
     }
   }
   return buffer;
@@ -232,15 +239,17 @@ async function analyseImage(fileName) {
   return new Promise(resolve => {
     const img = new Image();
     img.onload = () => {
-      const w = 64, h = 64;
+      const w = 72, h = 72;
       const canvas = document.createElement('canvas');
       canvas.width = w; canvas.height = h;
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
       ctx.drawImage(img, 0, 0, w, h);
       const { data } = ctx.getImageData(0, 0, w, h);
-
-      let brightnessSum = 0, saturationSum = 0, warmthSum = 0, edgeSum = 0, count = 0;
+      const hr = clamp(Math.round((horizons[fileName] ?? 0.5) * (h - 1)), 2, h - 3);
       const rowLum = new Array(h).fill(0);
+
+      const sky = { brightness: 0, saturation: 0, warmth: 0, edges: 0, count: 0 };
+      const sea = { brightness: 0, saturation: 0, warmth: 0, edges: 0, count: 0 };
 
       const lumAt = (x, y) => {
         const i = (y * w + x) * 4;
@@ -256,24 +265,32 @@ async function analyseImage(fileName) {
           const sat = max === 0 ? 0 : (max - min) / max;
           const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
           const warmth = clamp(0.5 + (r - b) * 0.5, 0, 1);
-          brightnessSum += lum;
-          saturationSum += sat;
-          warmthSum += warmth;
+          const region = y < hr ? sky : sea;
+
+          region.brightness += lum;
+          region.saturation += sat;
+          region.warmth += warmth;
+          region.count++;
           rowLum[y] += lum;
-          count++;
-          if (x < w - 1) edgeSum += Math.abs(lum - lumAt(x + 1, y));
-          if (y < h - 1) edgeSum += Math.abs(lum - lumAt(x, y + 1));
+
+          if (x < w - 1) region.edges += Math.abs(lum - lumAt(x + 1, y));
+          if (y < h - 1) region.edges += Math.abs(lum - lumAt(x, y + 1));
         }
       }
 
       for (let y = 0; y < h; y++) rowLum[y] /= w;
-      const hr = clamp(Math.round((horizons[fileName] ?? 0.5) * (h - 1)), 1, h - 2);
+
+      const safeAvg = (region, key, fallback) => region.count ? region[key] / region.count : fallback;
       resolve({
-        brightness: brightnessSum / count,
-        saturation: saturationSum / count,
-        warmth: warmthSum / count,
-        edgeDensity: clamp(edgeSum / (count * 0.22), 0, 1),
-        horizonContrast: clamp(Math.abs(rowLum[hr - 1] - rowLum[hr + 1]) * 3.5, 0, 1)
+        skyBrightness: safeAvg(sky, 'brightness', DEFAULT_FEATURES.skyBrightness),
+        skySaturation: safeAvg(sky, 'saturation', DEFAULT_FEATURES.skySaturation),
+        skyWarmth: safeAvg(sky, 'warmth', DEFAULT_FEATURES.skyWarmth),
+        skyEdgeDensity: clamp(sky.edges / Math.max(1, sky.count * 0.20), 0, 1),
+        seaBrightness: safeAvg(sea, 'brightness', DEFAULT_FEATURES.seaBrightness),
+        seaSaturation: safeAvg(sea, 'saturation', DEFAULT_FEATURES.seaSaturation),
+        seaWarmth: safeAvg(sea, 'warmth', DEFAULT_FEATURES.seaWarmth),
+        seaEdgeDensity: clamp(sea.edges / Math.max(1, sea.count * 0.20), 0, 1),
+        horizonContrast: clamp(Math.abs(rowLum[hr - 1] - rowLum[hr + 1]) * 4.0, 0, 1)
       });
     };
     img.onerror = () => resolve({ ...DEFAULT_FEATURES });
@@ -289,7 +306,7 @@ async function buildImageFeatures() {
 
 function createLoopNoise(ctx, brown) {
   const src = ctx.createBufferSource();
-  src.buffer = createNoiseBuffer(ctx, 3, brown);
+  src.buffer = createNoiseBuffer(ctx, 4, brown);
   src.loop = true;
   return src;
 }
@@ -303,9 +320,10 @@ async function initSoundEngine() {
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
   masterGain = audioCtx.createGain();
-  masterGain.gain.value = 0.8;
+  masterGain.gain.value = 0.72;
   masterGain.connect(audioCtx.destination);
 
+  // TONAL HORIZON: deliberately narrow, dark and almost immobile.
   toneOscA = audioCtx.createOscillator();
   toneOscB = audioCtx.createOscillator();
   harmonicOsc = audioCtx.createOscillator();
@@ -313,17 +331,17 @@ async function initSoundEngine() {
   toneOscB.type = 'sine';
   harmonicOsc.type = 'sine';
   toneOscA.frequency.value = 110;
-  toneOscB.frequency.value = 110.20;
-  harmonicOsc.frequency.value = 220.4;
+  toneOscB.frequency.value = 110.12;
+  harmonicOsc.frequency.value = 220.25;
 
   toneFilter = audioCtx.createBiquadFilter();
   toneFilter.type = 'lowpass';
-  toneFilter.frequency.value = 330;
-  toneFilter.Q.value = 0.8;
+  toneFilter.frequency.value = 250;
+  toneFilter.Q.value = 0.55;
   toneGain = audioCtx.createGain();
-  toneGain.gain.value = 0.12;
+  toneGain.gain.value = 0.095;
   harmonicGain = audioCtx.createGain();
-  harmonicGain.gain.value = 0.008;
+  harmonicGain.gain.value = 0.003;
 
   toneOscA.connect(toneFilter);
   toneOscB.connect(toneFilter);
@@ -332,25 +350,38 @@ async function initSoundEngine() {
   harmonicOsc.connect(harmonicGain);
   harmonicGain.connect(masterGain);
 
+  // SEA: brown noise, kept in the low-mid body, with one very slow swell.
   seaNoise = createLoopNoise(audioCtx, true);
   seaFilter = audioCtx.createBiquadFilter();
   seaFilter.type = 'bandpass';
-  seaFilter.frequency.value = 760;
-  seaFilter.Q.value = 0.65;
+  seaFilter.frequency.value = 620;
+  seaFilter.Q.value = 0.58;
   seaGain = audioCtx.createGain();
-  seaGain.gain.value = 0.045;
+  seaGain.gain.value = 0.048;
+  seaSwellGain = audioCtx.createGain();
+  seaSwellGain.gain.value = 0.88;
+  seaSwellOsc = audioCtx.createOscillator();
+  seaSwellDepth = audioCtx.createGain();
+  seaSwellOsc.type = 'sine';
+  seaSwellOsc.frequency.value = 0.035;
+  seaSwellDepth.gain.value = 0.11;
+
   seaNoise.connect(seaFilter);
   seaFilter.connect(seaGain);
-  seaGain.connect(masterGain);
+  seaGain.connect(seaSwellGain);
+  seaSwellGain.connect(masterGain);
+  seaSwellOsc.connect(seaSwellDepth);
+  seaSwellDepth.connect(seaSwellGain.gain);
 
+  // SKY: thin air, high and quiet, never a literal wind sample.
   skyNoise = createLoopNoise(audioCtx, false);
   skyFilter = audioCtx.createBiquadFilter();
   skyFilter.type = 'highpass';
-  skyFilter.frequency.value = 3600;
-  skyFilter.Q.value = 0.25;
+  skyFilter.frequency.value = 4800;
+  skyFilter.Q.value = 0.2;
   skyPan = audioCtx.createStereoPanner();
   skyGain = audioCtx.createGain();
-  skyGain.gain.value = 0.012;
+  skyGain.gain.value = 0.008;
   skyNoise.connect(skyFilter);
   skyFilter.connect(skyPan);
   skyPan.connect(skyGain);
@@ -360,10 +391,15 @@ async function initSoundEngine() {
   toneOscB.start();
   harmonicOsc.start();
   seaNoise.start();
+  seaSwellOsc.start();
   skyNoise.start();
 
   await audioCtx.resume();
-  buildImageFeatures();
+
+  // Start immediately; image analysis continues in the background.
+  buildImageFeatures().then(() => {
+    updateSoundFromVisuals(current, current, current, 0.5, 0);
+  });
 }
 
 function blendFeatures(a, b, c, phase) {
@@ -377,10 +413,14 @@ function blendFeatures(a, b, c, phase) {
   const wA = wA0 / sum, wB = wB0 / sum, wC = wC0 / sum;
   const mix = key => fa[key] * wA + fb[key] * wB + fc[key] * wC;
   return {
-    brightness: mix('brightness'),
-    saturation: mix('saturation'),
-    warmth: mix('warmth'),
-    edgeDensity: mix('edgeDensity'),
+    skyBrightness: mix('skyBrightness'),
+    skySaturation: mix('skySaturation'),
+    skyWarmth: mix('skyWarmth'),
+    skyEdgeDensity: mix('skyEdgeDensity'),
+    seaBrightness: mix('seaBrightness'),
+    seaSaturation: mix('seaSaturation'),
+    seaWarmth: mix('seaWarmth'),
+    seaEdgeDensity: mix('seaEdgeDensity'),
     horizonContrast: mix('horizonContrast')
   };
 }
@@ -389,21 +429,73 @@ function updateSoundFromVisuals(a, b, c, phase, loopProgress = 0) {
   if (!audioCtx || audioCtx.state !== 'running') return;
   const f = blendFeatures(a, b, c, phase);
   const now = audioCtx.currentTime;
-  const baseHz = 110 + (f.warmth - 0.5) * 0.9 + (f.brightness - 0.5) * 0.45;
-  const beatHz = lerp(0.10, 0.30, clamp(f.edgeDensity * 0.7 + f.horizonContrast * 0.3, 0, 1));
 
-  toneOscA.frequency.setTargetAtTime(baseHz, now, 0.45);
-  toneOscB.frequency.setTargetAtTime(baseHz + beatHz, now, 0.45);
-  harmonicOsc.frequency.setTargetAtTime(baseHz * 2.003, now, 0.55);
-  toneFilter.frequency.setTargetAtTime(lerp(230, 470, clamp(f.brightness * 0.65 + f.saturation * 0.35, 0, 1)), now, 0.6);
-  harmonicGain.gain.setTargetAtTime(lerp(0.002, 0.014, f.saturation), now, 0.7);
-  toneGain.gain.setTargetAtTime(lerp(0.09, 0.14, f.horizonContrast), now, 0.6);
-  seaFilter.frequency.setTargetAtTime(lerp(430, 1500, clamp(f.edgeDensity * 0.65 + f.saturation * 0.35, 0, 1)), now, 0.75);
-  seaFilter.Q.setTargetAtTime(lerp(0.45, 1.1, f.horizonContrast), now, 0.8);
-  seaGain.gain.setTargetAtTime(lerp(0.028, 0.065, clamp(f.edgeDensity * 0.75 + (1 - f.horizonContrast) * 0.25, 0, 1)), now, 0.8);
-  skyFilter.frequency.setTargetAtTime(lerp(2800, 7200, clamp(f.brightness * 0.75 + (1 - f.warmth) * 0.25, 0, 1)), now, 1.0);
-  skyGain.gain.setTargetAtTime(lerp(0.006, 0.022, clamp(f.brightness * 0.8 + (1 - f.edgeDensity) * 0.2, 0, 1)), now, 1.0);
-  skyPan.pan.setTargetAtTime(Math.sin(loopProgress * Math.PI * 2) * 0.16, now, 0.9);
+  // Horizon stays almost fixed. Overall colour only bends it by fractions of a hertz.
+  const meanWarmth = (f.skyWarmth + f.seaWarmth) * 0.5;
+  const meanBrightness = (f.skyBrightness + f.seaBrightness) * 0.5;
+  const baseHz = 110
+    + (meanWarmth - 0.5) * 0.55
+    + (meanBrightness - 0.5) * 0.22;
+
+  const structuralEnergy = clamp(
+    f.seaEdgeDensity * 0.55 + f.skyEdgeDensity * 0.15 + f.horizonContrast * 0.30,
+    0,
+    1
+  );
+  const beatHz = lerp(0.08, 0.18, structuralEnergy);
+
+  toneOscA.frequency.setTargetAtTime(baseHz, now, 1.2);
+  toneOscB.frequency.setTargetAtTime(baseHz + beatHz, now, 1.2);
+  harmonicOsc.frequency.setTargetAtTime(baseHz * 2.002, now, 1.35);
+  toneFilter.frequency.setTargetAtTime(
+    lerp(185, 315, clamp(meanBrightness * 0.65 + f.horizonContrast * 0.35, 0, 1)),
+    now,
+    1.25
+  );
+  harmonicGain.gain.setTargetAtTime(
+    lerp(0.0012, 0.0055, clamp((f.skySaturation + f.seaSaturation) * 0.5, 0, 1)),
+    now,
+    1.4
+  );
+  toneGain.gain.setTargetAtTime(
+    lerp(0.078, 0.108, f.horizonContrast),
+    now,
+    1.25
+  );
+
+  // SEA responds only to the part below the calibrated horizon.
+  const seaActivity = clamp(f.seaEdgeDensity * 0.65 + f.seaSaturation * 0.25 + (1 - f.seaBrightness) * 0.10, 0, 1);
+  seaFilter.frequency.setTargetAtTime(
+    lerp(360, 1120, seaActivity),
+    now,
+    1.35
+  );
+  seaFilter.Q.setTargetAtTime(
+    lerp(0.42, 0.92, clamp(f.seaSaturation * 0.55 + f.horizonContrast * 0.45, 0, 1)),
+    now,
+    1.4
+  );
+  seaGain.gain.setTargetAtTime(
+    lerp(0.036, 0.068, clamp(f.seaEdgeDensity * 0.65 + f.seaSaturation * 0.20 + (1 - f.horizonContrast) * 0.15, 0, 1)),
+    now,
+    1.45
+  );
+
+  // SKY responds only to the part above the calibrated horizon.
+  const skyAir = clamp(f.skyBrightness * 0.72 + (1 - f.skyEdgeDensity) * 0.18 + (1 - f.skyWarmth) * 0.10, 0, 1);
+  skyFilter.frequency.setTargetAtTime(
+    lerp(4200, 7800, skyAir),
+    now,
+    1.5
+  );
+  skyGain.gain.setTargetAtTime(
+    lerp(0.0035, 0.0135, clamp(f.skyBrightness * 0.75 + f.skySaturation * 0.15 + (1 - f.skyEdgeDensity) * 0.10, 0, 1)),
+    now,
+    1.5
+  );
+
+  // One slow spatial breath over the 58-second visual cycle.
+  skyPan.pan.setTargetAtTime(Math.sin(loopProgress * Math.PI * 2) * 0.22, now, 1.25);
 }
 
 // ------------------------------------------------------------
