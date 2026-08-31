@@ -77,16 +77,17 @@ function resize(){const r=stage.getBoundingClientRect();renderer.setSize(Math.ma
 window.addEventListener('resize',resize);
 
 const slider=document.querySelector('#horizonSlider'), value=document.querySelector('#horizonValue'), filename=document.querySelector('#filename'), counter=document.querySelector('#counter');
+const morphInput=document.querySelector('#morphInput'), morphValue=document.querySelector('#morphValue');
 function updateUI(){slider.value=horizons[images[current]];value.textContent=(+slider.value).toFixed(3);filename.textContent=images[current];counter.textContent=`${current+1} / ${images.length}`;if(textures[current])setPair(current,current,0)}
 slider.addEventListener('input',()=>{horizons[images[current]]=+slider.value;value.textContent=(+slider.value).toFixed(3);localStorage.setItem('liquidCommonsHorizons',JSON.stringify(horizons));if(textures[current])setPair(current,current,0)});
 document.querySelector('#prevBtn').onclick=()=>{current=(current-1+images.length)%images.length;updateUI()};
 document.querySelector('#nextBtn').onclick=()=>{current=(current+1)%images.length;updateUI()};
 document.querySelector('#durationInput').oninput=e=>totalDuration=Math.max(12,+e.target.value||36);
-document.querySelector('#morphInput').oninput=e=>{morphStrength=+e.target.value;material.uniforms.uStrength.value=morphStrength};
+morphInput.oninput=e=>{morphStrength=+e.target.value;material.uniforms.uStrength.value=morphStrength;morphValue.textContent=morphStrength.toFixed(3)};
 document.querySelector('#playBtn').onclick=()=>{playback=true;document.body.classList.add('playback');startTime=performance.now();resize()};
 document.querySelector('#exitPlayback').onclick=()=>{playback=false;document.body.classList.remove('playback');current=0;updateUI();resize()};
 
-function ready(){updateUI();resize();requestAnimationFrame(loop)}
+function ready(){morphValue.textContent=morphStrength.toFixed(3);updateUI();resize();requestAnimationFrame(loop)}
 function loop(now){
   material.uniforms.uTime.value=now/1000;
   if(playback){
