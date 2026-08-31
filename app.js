@@ -19,7 +19,7 @@ const TARGET_ASPECT=7680/856;
 const saved=JSON.parse(localStorage.getItem('liquidCommonsHorizons')||'{}');
 const horizons=Object.fromEntries(images.map(f=>[f,saved[f]??0.5]));
 let current=0, playback=false, startTime=performance.now();
-let totalDuration=24, morphStrength=0.070;
+let totalDuration=24, morphStrength=0.060;
 
 const stage=document.querySelector('#stage');
 const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});
@@ -40,10 +40,10 @@ const material=new THREE.ShaderMaterial({
       float visible=srcAspect/uTargetAspect;
       float d=uv.y-.5;
       float mask=pow(clamp(abs(d)*2.0,0.0,1.0),1.35);
-      float wave=sin(uv.x*13.0+uTime*.55+phase)+sin(uv.x*29.0-uTime*.31+phase*2.0)*.45;
+      float wave=sin(uv.x*13.0+uTime*.42+phase)+sin(uv.x*29.0-uTime*.21+phase*2.0)*.38;
       float drift=wave*uStrength*mask;
       float y=horizon+(d+drift*sign(d))*visible;
-      float x=uv.x+sin((uv.y+phase)*18.0+uTime*.25)*uStrength*.20*mask;
+      float x=uv.x+sin((uv.y+phase)*18.0+uTime*.16)*uStrength*.16*mask;
       return vec2(clamp(x,0.001,.999),clamp(y,0.001,.999));
     }
     void main(){
@@ -51,9 +51,15 @@ const material=new THREE.ShaderMaterial({
       vec2 uvA=sourceUV(vUv,uHorizonA,uSourceAspectA,0.0);
       vec2 uvB=sourceUV(vUv,uHorizonB,uSourceAspectB,0.0);
       vec4 a=texture2D(uA,uvA); vec4 b=texture2D(uB,uvB);
-      float edgeSoft=sin(3.14159*m);
-      float ripple=sin((vUv.y-.5)*10.0+uTime*.18)*0.018*edgeSoft*edgeSoft;
-      gl_FragColor=mix(a,b,clamp(m+ripple,0.0,1.0));
+
+      float horizonDist=abs(vUv.y-.5);
+      float spatial=0.10*sin(vUv.x*10.0+uTime*.08)
+                  +0.06*sin(vUv.x*23.0+vUv.y*7.0)
+                  +0.04*sin(vUv.y*17.0-uTime*.05);
+      spatial*=smoothstep(0.02,0.42,horizonDist);
+      float localMix=smoothstep(0.0,1.0,clamp(m+spatial,0.0,1.0));
+
+      gl_FragColor=mix(a,b,localMix);
     }`
 });
 scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2),material));
@@ -117,7 +123,7 @@ function loop(now){
     const b=(a+1)%images.length;
     const p=(t-a*segment)/segment;
     const smooth=p*p*(3-2*p);
-    const blend=p*0.65+smooth*0.35;
+    const blend=p*0.8+smooth*0.2;
     if(!setPair(a,b,blend)){
       const fallback=textures.findIndex(Boolean);
       if(fallback>=0) setPair(fallback,fallback,0);
