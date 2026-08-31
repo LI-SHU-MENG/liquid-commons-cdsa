@@ -19,7 +19,7 @@ const TARGET_ASPECT=7680/856;
 const saved=JSON.parse(localStorage.getItem('liquidCommonsHorizons')||'{}');
 const horizons=Object.fromEntries(images.map(f=>[f,saved[f]??0.5]));
 let current=0, playback=false, startTime=performance.now();
-let totalDuration=24, morphStrength=0.060;
+let totalDuration=24, morphStrength=0.050;
 
 const stage=document.querySelector('#stage');
 const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});
@@ -36,29 +36,47 @@ const material=new THREE.ShaderMaterial({
   fragmentShader:`
     precision highp float;varying vec2 vUv;
     uniform sampler2D uA,uB;uniform float uMix,uTime,uHorizonA,uHorizonB,uSourceAspectA,uSourceAspectB,uTargetAspect,uStrength;
-    vec2 sourceUV(vec2 uv,float horizon,float srcAspect,float phase){
+
+    vec2 sourceUV(vec2 uv,float horizon,float srcAspect,float phase,float direction){
       float visible=srcAspect/uTargetAspect;
       float d=uv.y-.5;
       float mask=pow(clamp(abs(d)*2.0,0.0,1.0),1.35);
-      float wave=sin(uv.x*13.0+uTime*.42+phase)+sin(uv.x*29.0-uTime*.21+phase*2.0)*.38;
-      float drift=wave*uStrength*mask;
-      float y=horizon+(d+drift*sign(d))*visible;
-      float x=uv.x+sin((uv.y+phase)*18.0+uTime*.16)*uStrength*.16*mask;
+
+      // Horizontal motion only: the horizon line never moves vertically.
+      float wave=sin(uv.y*16.0+uTime*.22+phase)
+               +0.45*sin(uv.y*31.0-uTime*.13+phase*1.7);
+      float xFlow=direction*(0.010+uStrength*.14)*mask;
+      float x=uv.x + xFlow + wave*uStrength*.08*mask;
+      float y=horizon+d*visible;
+
       return vec2(clamp(x,0.001,.999),clamp(y,0.001,.999));
     }
+
     void main(){
       float m=clamp(uMix,0.0,1.0);
-      vec2 uvA=sourceUV(vUv,uHorizonA,uSourceAspectA,0.0);
-      vec2 uvB=sourceUV(vUv,uHorizonB,uSourceAspectB,0.0);
-      vec4 a=texture2D(uA,uvA); vec4 b=texture2D(uB,uvB);
 
+      // A soft transition front travels consistently from left to right.
+      float front=-0.12 + m*1.24;
       float horizonDist=abs(vUv.y-.5);
-      float spatial=0.10*sin(vUv.x*10.0+uTime*.08)
-                  +0.06*sin(vUv.x*23.0+vUv.y*7.0)
-                  +0.04*sin(vUv.y*17.0-uTime*.05);
-      spatial*=smoothstep(0.02,0.42,horizonDist);
-      float localMix=smoothstep(0.0,1.0,clamp(m+spatial,0.0,1.0));
+      float organic=(0.020*sin(vUv.y*21.0+uTime*.22)
+                    +0.012*sin(vUv.y*43.0-uTime*.11)
+                    +0.006*sin(vUv.x*8.0+vUv.y*17.0));
+      organic*=smoothstep(0.015,0.40,horizonDist);
 
+      float soft=0.16;
+      float localMix=1.0-smoothstep(front-soft,front+soft,vUv.x+organic);
+
+      // Gently push A and B in the same direction near the moving front.
+      float flowBand=exp(-pow((vUv.x-front)/0.22,2.0));
+      float push=uStrength*0.22*flowBand;
+
+      vec2 uvA=sourceUV(vUv,uHorizonA,uSourceAspectA,0.0,+1.0);
+      vec2 uvB=sourceUV(vUv,uHorizonB,uSourceAspectB,1.3,+1.0);
+      uvA.x=clamp(uvA.x+push,0.001,.999);
+      uvB.x=clamp(uvB.x-push*.35,0.001,.999);
+
+      vec4 a=texture2D(uA,uvA);
+      vec4 b=texture2D(uB,uvB);
       gl_FragColor=mix(a,b,localMix);
     }`
 });
@@ -123,7 +141,7 @@ function loop(now){
     const b=(a+1)%images.length;
     const p=(t-a*segment)/segment;
     const smooth=p*p*(3-2*p);
-    const blend=p*0.8+smooth*0.2;
+    const blend=p*0.82+smooth*0.18;
     if(!setPair(a,b,blend)){
       const fallback=textures.findIndex(Boolean);
       if(fallback>=0) setPair(fallback,fallback,0);
