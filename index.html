@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Liquid Commons — CDSA 2026</title>
-  <link rel="stylesheet" href="./styles.css?v=04b5ee0d" />
+  <link rel="stylesheet" href="./styles.css?v=2d156110" />
 </head>
 <body>
   <main id="app">
@@ -123,12 +123,17 @@
     function syncPreview() {
       const file = filenameEl.textContent.trim();
       if (!file || document.body.classList.contains('playback')) return;
-      const nextSrc = `./public/images/${encodeURIComponent(file)}`;
-      if (!preview.src.endsWith(nextSrc)) preview.src = nextSrc;
-      else layoutCalibration();
+      const nextSrc = encodeURI(`./public/images/${file}`);
+      preview.src = nextSrc;
     }
 
     preview.addEventListener('load', layoutCalibration);
+    preview.addEventListener('error', () => {
+      preview.style.display = 'none';
+      cropBand.style.display = 'none';
+      guide.style.display = 'none';
+      console.error('Calibration preview failed to load:', preview.src);
+    });
     sliderEl.addEventListener('input', layoutCalibration);
     window.addEventListener('resize', layoutCalibration);
     new MutationObserver(syncPreview).observe(filenameEl, { childList: true, characterData: true, subtree: true });
