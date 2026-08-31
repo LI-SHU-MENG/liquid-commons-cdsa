@@ -8,7 +8,6 @@ const images=[
 
 const TARGET_WIDTH=7680, TARGET_HEIGHT=856, TARGET_ASPECT=TARGET_WIDTH/TARGET_HEIGHT;
 const RECORD_WIDTH=3840, RECORD_HEIGHT=428, RECORD_FPS=24, RECORD_BITRATE=15000000;
-const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const idx=i=>(i+images.length)%images.length;
 
 function loadHorizons(){
@@ -49,9 +48,11 @@ const material=new THREE.ShaderMaterial({
       float mask=pow(clamp(abs(d)*2.0,0.0,1.0),1.55);
       float wave=sin(uv.y*9.0+uTime)+.18*sin(uv.y*20.0-2.0*uTime);
       float x=uv.x+wave*uStrength*.010*mask;
-      // Calibration values are measured from the TOP of the source image.
-      // Three.js texture coordinates are bottom-origin, so invert once here.
-      float y=(1.0-horizon)+d*visible;
+      // Texture flipY is disabled below, so sampler Y is explicitly TOP-origin.
+      // The saved calibration value is also TOP-origin. At output centre (d=0),
+      // sampler Y is therefore exactly the saved horizon value.
+      // Output top must sample above the horizon, hence the minus sign.
+      float y=horizon-d*visible;
       return vec2(clamp(x,.002,.998),clamp(y,.002,.998));
     }
 
@@ -73,8 +74,15 @@ scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2),material));
 const textures=new Array(images.length).fill(null);
 const loader=new THREE.TextureLoader();
 function prepTexture(t){
-  t.colorSpace=THREE.SRGBColorSpace;t.minFilter=THREE.LinearFilter;t.magFilter=THREE.LinearFilter;
-  t.wrapS=THREE.ClampToEdgeWrapping;t.wrapT=THREE.ClampToEdgeWrapping;return t;
+  // Make the WebGL texture use the same top-origin coordinate system as calibration.
+  t.flipY=false;
+  t.colorSpace=THREE.SRGBColorSpace;
+  t.minFilter=THREE.LinearFilter;
+  t.magFilter=THREE.LinearFilter;
+  t.wrapS=THREE.ClampToEdgeWrapping;
+  t.wrapT=THREE.ClampToEdgeWrapping;
+  t.needsUpdate=true;
+  return t;
 }
 function texAspect(t){return t?.image?.width&&t?.image?.height?t.image.width/t.image.height:1.333;}
 
@@ -152,10 +160,19 @@ morphInput.value=morphStrength;morphValue.textContent=morphStrength.toFixed(3);
 morphInput.addEventListener('input',e=>{morphStrength=+e.target.value;material.uniforms.uStrength.value=morphStrength;morphValue.textContent=morphStrength.toFixed(3);});
 
 playBtn.addEventListener('click',()=>{
-  refreshSavedHorizons();playback=true;document.body.classList.add('playback');startTime=performance.now();resize();
+  refreshSavedHorizons();
+  playback=true;
+  document.body.classList.add('playback');
+  startTime=performance.now();
+  resize();
 });
 exitPlayback.addEventListener('click',()=>{
-  if(recording)return;playback=false;document.body.classList.remove('playback');current=0;updateUI();resize();
+  if(recording)return;
+  playback=false;
+  document.body.classList.remove('playback');
+  current=0;
+  updateUI();
+  resize();
 });
 
 function recorderMime(){
@@ -192,6 +209,7 @@ function loop(now){
     const cycle=progress*images.length,center=Math.floor(cycle)%images.length,phase=cycle-Math.floor(cycle);
     if(!setTriple(center-1,center,center+1,phase))setSingle(current);
   }
-  renderer.render(scene,camera);requestAnimationFrame(loop);
+  renderer.render(scene,camera);
+  requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
