@@ -66,8 +66,33 @@
     <button id="exitPlayback" class="hidden">Exit playback</button>
   </main>
 
+  <script>
+    (() => {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx || !window.AudioParam) return;
+      const oscillatorFreqs = new WeakSet();
+      const originalCreateOscillator = Ctx.prototype.createOscillator;
+      Ctx.prototype.createOscillator = function(...args) {
+        const osc = originalCreateOscillator.apply(this, args);
+        oscillatorFreqs.add(osc.frequency);
+        const originalStart = osc.start.bind(osc);
+        osc.start = (...startArgs) => {
+          const v = osc.frequency.value;
+          if ((v >= 100 && v <= 130) || (v >= 200 && v <= 230)) osc.frequency.value = v * 2;
+          return originalStart(...startArgs);
+        };
+        return osc;
+      };
+      const originalSetTargetAtTime = AudioParam.prototype.setTargetAtTime;
+      AudioParam.prototype.setTargetAtTime = function(value, startTime, timeConstant) {
+        let v = value;
+        if (oscillatorFreqs.has(this) && ((v >= 100 && v <= 130) || (v >= 200 && v <= 230))) v *= 2;
+        return originalSetTargetAtTime.call(this, v, startTime, timeConstant);
+      };
+    })();
+  </script>
   <script type="module" src="./app.js?v=27218500"></script>
-  <script type="module" src="./sound-monitor.js?v=2247ce9c"></script>
+  <script type="module" src="./sound-monitor.js?v=7d657c15"></script>
   <script type="module" src="./sound-detail.js?v=1aefe9d4"></script>
   <script>
     const preview = document.querySelector('#manualPreview');
