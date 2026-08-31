@@ -17,8 +17,9 @@
       <div class="row top-row">
         <strong>Liquid Commons — Horizon Calibration</strong>
         <div class="row">
+          <button id="soundProxy">Start sound</button>
           <button id="playBtn">Playback</button>
-          <button id="recordBtn">Record 120s</button>
+          <button id="recordBtn">Record 58s</button>
         </div>
       </div>
 
@@ -41,20 +42,38 @@
 
       <div class="row">
         <label class="compact">Duration (s)
-          <input id="durationInput" type="number" min="12" max="180" step="1" value="120" />
+          <input id="durationInput" type="number" min="12" max="180" step="1" value="58" />
         </label>
         <label class="compact">Morph
-          <input id="morphInput" type="range" min="0" max="0.12" step="0.002" value="0.050" />
-          <output id="morphValue">0.050</output>
+          <input id="morphInput" type="range" min="0" max="0.12" step="0.002" value="0.030" />
+          <output id="morphValue">0.030</output>
         </label>
       </div>
 
-      <p class="hint">Move the slider until the real horizon matches the red line. Values are saved automatically in this browser. Record exports one seamless loop at 7680×856 when supported by the browser.</p>
+      <p class="hint">Move the slider until the real horizon matches the red line. Values are saved automatically in this browser. Playback runs one seamless 58-second loop.</p>
     </aside>
 
     <button id="exitPlayback" class="hidden">Exit playback</button>
   </main>
 
   <script type="module" src="./app.js"></script>
+  <script>
+    const proxy = document.querySelector('#soundProxy');
+    proxy.addEventListener('click', () => {
+      const realButton = document.querySelector('button[aria-label="Toggle sound"]');
+      if (!realButton) {
+        proxy.textContent = 'Sound loading…';
+        setTimeout(() => {
+          const retry = document.querySelector('button[aria-label="Toggle sound"]');
+          if (retry) retry.click();
+        }, 250);
+        return;
+      }
+      realButton.click();
+      setTimeout(() => {
+        proxy.textContent = realButton.textContent === 'Sound: on' ? 'Sound: off' : 'Start sound';
+      }, 500);
+    });
+  </script>
 </body>
 </html>
