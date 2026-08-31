@@ -21,7 +21,7 @@ const TARGET_ASPECT=TARGET_WIDTH/TARGET_HEIGHT;
 const saved=JSON.parse(localStorage.getItem('liquidCommonsHorizons')||'{}');
 const horizons=Object.fromEntries(images.map(f=>[f,saved[f]??0.5]));
 let current=0, playback=false, startTime=performance.now();
-let totalDuration=48, morphStrength=0.050;
+let totalDuration=120, morphStrength=0.050;
 let recording=false;
 
 const stage=document.querySelector('#stage');
@@ -40,38 +40,35 @@ const material=new THREE.ShaderMaterial({
     precision highp float;varying vec2 vUv;
     uniform sampler2D uA,uB;uniform float uMix,uTime,uHorizonA,uHorizonB,uSourceAspectA,uSourceAspectB,uTargetAspect,uStrength;
 
-    vec2 sourceUV(vec2 uv,float horizon,float srcAspect,float phase,float direction){
+    vec2 sourceUV(vec2 uv,float horizon,float srcAspect,float phase){
       float visible=srcAspect/uTargetAspect;
       float d=uv.y-.5;
-      float mask=pow(clamp(abs(d)*2.0,0.0,1.0),1.35);
-      float wave=sin(uv.y*16.0+uTime*.22+phase)
-               +0.45*sin(uv.y*31.0-uTime*.13+phase*1.7);
-      float xFlow=direction*(0.018+uStrength*.20)*mask;
-      float x=uv.x + xFlow + wave*uStrength*.10*mask;
+      float horizonMask=pow(clamp(abs(d)*2.0,0.0,1.0),1.45);
+
+      // Very subtle horizontal current. No vertical displacement: horizon stays locked.
+      float wave=sin(uv.y*14.0+uTime*.10+phase)
+               +0.35*sin(uv.y*29.0-uTime*.06+phase*1.4);
+      float x=uv.x + (0.004 + wave*uStrength*.035)*horizonMask;
       float y=horizon+d*visible;
       return vec2(clamp(x,0.001,.999),clamp(y,0.001,.999));
     }
 
     void main(){
       float m=clamp(uMix,0.0,1.0);
-      float front=-0.08 + m*1.16;
       float horizonDist=abs(vUv.y-.5);
-      float organic=(0.028*sin(vUv.y*21.0+uTime*.22)
-                    +0.016*sin(vUv.y*43.0-uTime*.11)
-                    +0.008*sin(vUv.x*8.0+vUv.y*17.0));
-      organic*=smoothstep(0.015,0.40,horizonDist);
 
-      float soft=0.095;
+      // A broad, soft transition front travels left to right.
+      // Both photographs remain present throughout the transition: no black gap or hard push.
+      float front=-0.30 + m*1.60;
+      float organic=(0.018*sin(vUv.y*16.0+uTime*.08)
+                    +0.010*sin(vUv.y*33.0-uTime*.045)
+                    +0.005*sin(vUv.x*6.0+vUv.y*13.0));
+      organic*=smoothstep(0.02,0.42,horizonDist);
+      float soft=0.28;
       float localMix=1.0-smoothstep(front-soft,front+soft,vUv.x+organic);
 
-      float flowBand=exp(-pow((vUv.x-front)/0.14,2.0));
-      float push=uStrength*0.40*flowBand;
-
-      vec2 uvA=sourceUV(vUv,uHorizonA,uSourceAspectA,0.0,+1.0);
-      vec2 uvB=sourceUV(vUv,uHorizonB,uSourceAspectB,1.3,+1.0);
-      uvA.x=clamp(uvA.x+push,0.001,.999);
-      uvB.x=clamp(uvB.x-push*.55,0.001,.999);
-
+      vec2 uvA=sourceUV(vUv,uHorizonA,uSourceAspectA,0.0);
+      vec2 uvB=sourceUV(vUv,uHorizonB,uSourceAspectB,1.1);
       vec4 a=texture2D(uA,uvA);
       vec4 b=texture2D(uB,uvB);
       gl_FragColor=mix(a,b,localMix);
@@ -129,7 +126,7 @@ document.querySelector('#prevBtn').onclick=()=>{current=(current-1+images.length
 document.querySelector('#nextBtn').onclick=()=>{current=(current+1)%images.length;updateUI()};
 durationInput.value=totalDuration;
 durationInput.oninput=e=>{
-  totalDuration=Math.max(12,+e.target.value||48);
+  totalDuration=Math.max(12,+e.target.value||120);
   recordBtn.textContent=`Record ${totalDuration}s`;
 };
 morphInput.value=morphStrength; morphValue.textContent=morphStrength.toFixed(3);
@@ -218,7 +215,7 @@ function loop(now){
     const b=(a+1)%images.length;
     const p=(t-a*segment)/segment;
     const smooth=p*p*(3-2*p);
-    const blend=p*0.90+smooth*0.10;
+    const blend=p*0.70+smooth*0.30;
     if(!setPair(a,b,blend)){
       const fallback=textures.findIndex(Boolean);
       if(fallback>=0) setPair(fallback,fallback,0);
