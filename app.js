@@ -41,39 +41,35 @@ const material=new THREE.ShaderMaterial({
       float visible=srcAspect/uTargetAspect;
       float d=uv.y-.5;
       float mask=pow(clamp(abs(d)*2.0,0.0,1.0),1.35);
-
-      // Horizontal motion only: the horizon line never moves vertically.
       float wave=sin(uv.y*16.0+uTime*.22+phase)
                +0.45*sin(uv.y*31.0-uTime*.13+phase*1.7);
-      float xFlow=direction*(0.010+uStrength*.14)*mask;
-      float x=uv.x + xFlow + wave*uStrength*.08*mask;
+      float xFlow=direction*(0.018+uStrength*.20)*mask;
+      float x=uv.x + xFlow + wave*uStrength*.10*mask;
       float y=horizon+d*visible;
-
       return vec2(clamp(x,0.001,.999),clamp(y,0.001,.999));
     }
 
     void main(){
       float m=clamp(uMix,0.0,1.0);
 
-      // A soft transition front travels consistently from left to right.
-      float front=-0.12 + m*1.24;
+      // Stronger left-to-right moving transition front.
+      float front=-0.08 + m*1.16;
       float horizonDist=abs(vUv.y-.5);
-      float organic=(0.020*sin(vUv.y*21.0+uTime*.22)
-                    +0.012*sin(vUv.y*43.0-uTime*.11)
-                    +0.006*sin(vUv.x*8.0+vUv.y*17.0));
+      float organic=(0.028*sin(vUv.y*21.0+uTime*.22)
+                    +0.016*sin(vUv.y*43.0-uTime*.11)
+                    +0.008*sin(vUv.x*8.0+vUv.y*17.0));
       organic*=smoothstep(0.015,0.40,horizonDist);
 
-      float soft=0.16;
+      float soft=0.095;
       float localMix=1.0-smoothstep(front-soft,front+soft,vUv.x+organic);
 
-      // Gently push A and B in the same direction near the moving front.
-      float flowBand=exp(-pow((vUv.x-front)/0.22,2.0));
-      float push=uStrength*0.22*flowBand;
+      float flowBand=exp(-pow((vUv.x-front)/0.14,2.0));
+      float push=uStrength*0.40*flowBand;
 
       vec2 uvA=sourceUV(vUv,uHorizonA,uSourceAspectA,0.0,+1.0);
       vec2 uvB=sourceUV(vUv,uHorizonB,uSourceAspectB,1.3,+1.0);
       uvA.x=clamp(uvA.x+push,0.001,.999);
-      uvB.x=clamp(uvB.x-push*.35,0.001,.999);
+      uvB.x=clamp(uvB.x-push*.55,0.001,.999);
 
       vec4 a=texture2D(uA,uvA);
       vec4 b=texture2D(uB,uvB);
@@ -141,7 +137,7 @@ function loop(now){
     const b=(a+1)%images.length;
     const p=(t-a*segment)/segment;
     const smooth=p*p*(3-2*p);
-    const blend=p*0.82+smooth*0.18;
+    const blend=p*0.90+smooth*0.10;
     if(!setPair(a,b,blend)){
       const fallback=textures.findIndex(Boolean);
       if(fallback>=0) setPair(fallback,fallback,0);
