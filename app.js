@@ -18,6 +18,10 @@ const images = [
 const TARGET_WIDTH = 7680;
 const TARGET_HEIGHT = 856;
 const TARGET_ASPECT = TARGET_WIDTH / TARGET_HEIGHT;
+const RECORD_WIDTH = 3840;
+const RECORD_HEIGHT = 428;
+const RECORD_FPS = 24;
+const RECORD_BITRATE = 15000000;
 
 const saved = JSON.parse(localStorage.getItem('liquidCommonsHorizons') || '{}');
 const horizons = Object.fromEntries(images.map(f => [f, saved[f] ?? 0.5]));
@@ -93,8 +97,6 @@ const material = new THREE.ShaderMaterial({
       float d = uv.y - 0.5;
       float horizonMask = pow(clamp(abs(d) * 2.0, 0.0, 1.0), 1.55);
 
-      // uTime is a periodic loop angle. Integer multiples make frame 0
-      // and the end of the cycle identical.
       float wave =
           sin(uv.y * 9.0 + uTime + phase)
         + 0.18 * sin(uv.y * 20.0 - 2.0 * uTime + phase * 1.15);
@@ -112,8 +114,6 @@ const material = new THREE.ShaderMaterial({
       vec4 b = texture2D(uB, sourceUV(vUv, uHorizonB, uSourceAspectB, 0.0));
       vec4 c = texture2D(uC, sourceUV(vUv, uHorizonC, uSourceAspectC, 0.0));
 
-      // Continuous quadratic chain. At every image boundary the weights
-      // and their first derivatives match, including last -> first.
       float wA = 0.5 * (1.0 - p) * (1.0 - p);
       float wB = 0.75 - (p - 0.5) * (p - 0.5);
       float wC = 0.5 * p * p;
@@ -180,13 +180,8 @@ images.forEach((file, i) => {
     encodeURI(`./public/images/${file}`),
     tex => {
       textures[i] = prepTexture(tex);
-      if (typeof renderer.initTexture === 'function') {
-        renderer.initTexture(textures[i]);
-      }
-
-      if (!playback && i === current) {
-        setSingle(current);
-      }
+      if (typeof renderer.initTexture === 'function') renderer.initTexture(textures[i]);
+      if (!playback && i === current) setSingle(current);
     },
     undefined,
     e => console.error('Failed to load', file, e)
@@ -267,11 +262,11 @@ document.querySelector('#exitPlayback').onclick = () => {
 
 function getRecorderMime() {
   const candidates = [
-    'video/mp4;codecs=avc1.42E01E',
-    'video/mp4',
     'video/webm;codecs=vp9',
     'video/webm;codecs=vp8',
-    'video/webm'
+    'video/webm',
+    'video/mp4;codecs=avc1.42E01E',
+    'video/mp4'
   ];
   return candidates.find(t => window.MediaRecorder?.isTypeSupported?.(t)) || '';
 }
@@ -280,7 +275,7 @@ recordBtn.onclick = async () => {
   if (recording) return;
 
   if (!renderer.domElement.captureStream || !window.MediaRecorder) {
-    alert('This browser cannot record the canvas directly. Try Chrome or Safari 18+.');
+    alert('This browser cannot record the canvas directly. Use Google Chrome.');
     return;
   }
 
@@ -291,11 +286,11 @@ recordBtn.onclick = async () => {
 
   recording = true;
   recordBtn.disabled = true;
-  recordStatus.textContent = 'Preparing 7680×856…';
+  recordStatus.textContent = `Preparing ${RECORD_WIDTH}×${RECORD_HEIGHT}…`;
 
   const previousPixelRatio = renderer.getPixelRatio();
   renderer.setPixelRatio(1);
-  renderer.setSize(TARGET_WIDTH, TARGET_HEIGHT, false);
+  renderer.setSize(RECORD_WIDTH, RECORD_HEIGHT, false);
 
   playback = true;
   document.body.classList.add('playback');
@@ -304,9 +299,9 @@ recordBtn.onclick = async () => {
   setTriple(images.length - 1, 0, 1, 0.0);
   renderer.render(scene, camera);
 
-  const stream = renderer.domElement.captureStream(30);
+  const stream = renderer.domElement.captureStream(RECORD_FPS);
   const mime = getRecorderMime();
-  const options = mime ? { mimeType: mime, videoBitsPerSecond: 50000000 } : { videoBitsPerSecond: 50000000 };
+  const options = mime ? { mimeType: mime, videoBitsPerSecond: RECORD_BITRATE } : { videoBitsPerSecond: RECORD_BITRATE };
 
   let recorder;
   try {
@@ -327,7 +322,7 @@ recordBtn.onclick = async () => {
 
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `Common_Horizon_7680x856_${totalDuration}s.${ext}`;
+    a.download = `Common_Horizon_${RECORD_WIDTH}x${RECORD_HEIGHT}_${totalDuration}s.${ext}`;
     a.click();
 
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
@@ -340,11 +335,11 @@ recordBtn.onclick = async () => {
     current = 0;
     updateUI();
     recordBtn.disabled = false;
-    recordStatus.textContent = `Exported ${TARGET_WIDTH}×${TARGET_HEIGHT} ${ext.toUpperCase()}`;
+    recordStatus.textContent = `Exported ${RECORD_WIDTH}×${RECORD_HEIGHT} ${ext.toUpperCase()}`;
   };
 
   recorder.start(1000);
-  recordStatus.textContent = `Recording ${totalDuration}s at ${TARGET_WIDTH}×${TARGET_HEIGHT}…`;
+  recordStatus.textContent = `Recording ${totalDuration}s at ${RECORD_WIDTH}×${RECORD_HEIGHT}, ${RECORD_FPS}fps…`;
   setTimeout(() => {
     if (recorder.state !== 'inactive') recorder.stop();
   }, totalDuration * 1000 + 120);
@@ -357,7 +352,6 @@ function loop(now) {
   const elapsed = (now - startTime) / 1000;
   const loopProgress = playback ? ((elapsed % totalDuration) / totalDuration) : 0;
 
-  // Exact periodic angle: 0 and 2π are identical.
   material.uniforms.uTime.value = playback
     ? loopProgress * Math.PI * 2
     : (now / 1000) * 0.015;
@@ -371,9 +365,7 @@ function loop(now) {
     const b = center;
     const c = idx(center + 1);
 
-    if (!setTriple(a, b, c, phase)) {
-      setSingle(current);
-    }
+    if (!setTriple(a, b, c, phase)) setSingle(current);
   } else if (!material.uniforms.uA.value && textures[current]) {
     setSingle(current);
   }
