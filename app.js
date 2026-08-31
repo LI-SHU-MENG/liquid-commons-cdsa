@@ -25,7 +25,7 @@ const horizons = Object.fromEntries(images.map(f => [f, saved[f] ?? 0.5]));
 let current = 0;
 let playback = false;
 let startTime = performance.now();
-let totalDuration = 120;
+let totalDuration = 58;
 let morphStrength = 0.030;
 let recording = false;
 
@@ -93,10 +93,11 @@ const material = new THREE.ShaderMaterial({
       float d = uv.y - 0.5;
       float horizonMask = pow(clamp(abs(d) * 2.0, 0.0, 1.0), 1.55);
 
-      // very subtle horizontal current only
+      // uTime is a periodic loop angle. Integer multiples make frame 0
+      // and the end of the cycle identical.
       float wave =
-          sin(uv.y * 9.0 + uTime * 0.015 + phase)
-        + 0.18 * sin(uv.y * 20.0 - uTime * 0.010 + phase * 1.15);
+          sin(uv.y * 9.0 + uTime + phase)
+        + 0.18 * sin(uv.y * 20.0 - 2.0 * uTime + phase * 1.15);
 
       float x = uv.x + wave * uStrength * 0.010 * horizonMask;
       float y = horizon + d * visible;
@@ -107,12 +108,12 @@ const material = new THREE.ShaderMaterial({
     void main() {
       float p = clamp(uPhase, 0.0, 1.0);
 
-    vec4 a = texture2D(uA, sourceUV(vUv, uHorizonA, uSourceAspectA, 0.0));
-vec4 b = texture2D(uB, sourceUV(vUv, uHorizonB, uSourceAspectB, 0.0));
-vec4 c = texture2D(uC, sourceUV(vUv, uHorizonC, uSourceAspectC, 0.0));
+      vec4 a = texture2D(uA, sourceUV(vUv, uHorizonA, uSourceAspectA, 0.0));
+      vec4 b = texture2D(uB, sourceUV(vUv, uHorizonB, uSourceAspectB, 0.0));
+      vec4 c = texture2D(uC, sourceUV(vUv, uHorizonC, uSourceAspectC, 0.0));
 
-      // continuous chained blending
-      // three neighbouring images are always present
+      // Continuous quadratic chain. At every image boundary the weights
+      // and their first derivatives match, including last -> first.
       float wA = 0.5 * (1.0 - p) * (1.0 - p);
       float wB = 0.75 - (p - 0.5) * (p - 0.5);
       float wC = 0.5 * p * p;
@@ -236,7 +237,7 @@ document.querySelector('#nextBtn').onclick = () => {
 
 durationInput.value = totalDuration;
 durationInput.oninput = e => {
-  totalDuration = Math.max(12, +e.target.value || 120);
+  totalDuration = Math.max(12, +e.target.value || 58);
   recordBtn.textContent = `Record ${totalDuration}s`;
 };
 
@@ -300,7 +301,7 @@ recordBtn.onclick = async () => {
   document.body.classList.add('playback');
   startTime = performance.now();
   material.uniforms.uTime.value = 0;
-  setTriple(images.length - 1, 0, 1, 0.5);
+  setTriple(images.length - 1, 0, 1, 0.0);
   renderer.render(scene, camera);
 
   const stream = renderer.domElement.captureStream(30);
@@ -354,10 +355,15 @@ updateUI();
 
 function loop(now) {
   const elapsed = (now - startTime) / 1000;
-  material.uniforms.uTime.value = playback ? elapsed : now / 1000;
+  const loopProgress = playback ? ((elapsed % totalDuration) / totalDuration) : 0;
+
+  // Exact periodic angle: 0 and 2π are identical.
+  material.uniforms.uTime.value = playback
+    ? loopProgress * Math.PI * 2
+    : (now / 1000) * 0.015;
 
   if (playback) {
-    const cycle = ((elapsed % totalDuration) / totalDuration) * images.length;
+    const cycle = loopProgress * images.length;
     const center = Math.floor(cycle) % images.length;
     const phase = cycle - Math.floor(cycle);
 
