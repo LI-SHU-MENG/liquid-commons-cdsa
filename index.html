@@ -4,15 +4,16 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Liquid Commons — CDSA 2026</title>
-  <link rel="stylesheet" href="./styles.css?v=90c8e474" />
+  <link rel="stylesheet" href="./styles.css?v=04b5ee0d" />
 </head>
 <body>
   <main id="app">
     <div id="stage-wrap">
       <div id="stage">
-        <img id="manualPreview" alt="Current horizon image" style="position:absolute;left:0;width:100%;height:auto;z-index:2;pointer-events:none;display:none;" />
+        <img id="manualPreview" alt="Current horizon image" />
+        <div id="crop-band"></div>
+        <div id="horizon-guide"></div>
       </div>
-      <div id="horizon-guide"></div>
     </div>
 
     <aside id="controls">
@@ -59,7 +60,7 @@
         <div><strong>SKY</strong><br>Brightness <span id="mSkyBrightness">—</span><br>Texture <span id="mSkyTexture">—</span><br>Filter <span id="mSkyFilter">—</span> Hz<br>Gain <span id="mSkyGain">—</span></div>
       </div>
 
-      <p class="hint">Move the slider until the real horizon matches the red line. Values are saved automatically in this browser. Playback runs one seamless 58-second loop.</p>
+      <p class="hint">Full source image shown for calibration. Red line = calibrated horizon. White translucent band = final 7680 × 856 crop. Playback remains unchanged.</p>
     </aside>
 
     <button id="exitPlayback" class="hidden">Exit playback</button>
@@ -69,18 +70,54 @@
   <script type="module" src="./sound-monitor.js?v=2247ce9c"></script>
   <script>
     const preview = document.querySelector('#manualPreview');
+    const cropBand = document.querySelector('#crop-band');
+    const guide = document.querySelector('#horizon-guide');
     const stage = document.querySelector('#stage');
     const filenameEl = document.querySelector('#filename');
     const sliderEl = document.querySelector('#horizonSlider');
     const playEl = document.querySelector('#playBtn');
     const exitEl = document.querySelector('#exitPlayback');
+    const TARGET_ASPECT = 7680 / 856;
 
-    function positionPreview() {
+    function layoutCalibration() {
       if (!preview.naturalWidth || !preview.naturalHeight || document.body.classList.contains('playback')) return;
-      const renderedHeight = stage.clientWidth * preview.naturalHeight / preview.naturalWidth;
+
+      const sw = stage.clientWidth;
+      const sh = stage.clientHeight;
+      const imageAspect = preview.naturalWidth / preview.naturalHeight;
+
+      let displayW, displayH;
+      if (sw / sh > imageAspect) {
+        displayH = sh;
+        displayW = displayH * imageAspect;
+      } else {
+        displayW = sw;
+        displayH = displayW / imageAspect;
+      }
+
+      const left = (sw - displayW) / 2;
+      const top = (sh - displayH) / 2;
       const horizon = Number(sliderEl.value || 0.5);
-      preview.style.top = `${stage.clientHeight / 2 - horizon * renderedHeight}px`;
+      const horizonY = top + horizon * displayH;
+      const cropH = displayW / TARGET_ASPECT;
+      const cropTop = horizonY - cropH / 2;
+
+      preview.style.left = `${left}px`;
+      preview.style.top = `${top}px`;
+      preview.style.width = `${displayW}px`;
+      preview.style.height = `${displayH}px`;
       preview.style.display = 'block';
+
+      cropBand.style.left = `${left}px`;
+      cropBand.style.top = `${cropTop}px`;
+      cropBand.style.width = `${displayW}px`;
+      cropBand.style.height = `${cropH}px`;
+      cropBand.style.display = 'block';
+
+      guide.style.left = `${left}px`;
+      guide.style.top = `${horizonY - 1}px`;
+      guide.style.width = `${displayW}px`;
+      guide.style.display = 'block';
     }
 
     function syncPreview() {
@@ -88,18 +125,21 @@
       if (!file || document.body.classList.contains('playback')) return;
       const nextSrc = `./public/images/${encodeURIComponent(file)}`;
       if (!preview.src.endsWith(nextSrc)) preview.src = nextSrc;
-      else positionPreview();
+      else layoutCalibration();
     }
 
-    preview.addEventListener('load', positionPreview);
-    sliderEl.addEventListener('input', positionPreview);
-    window.addEventListener('resize', positionPreview);
-
+    preview.addEventListener('load', layoutCalibration);
+    sliderEl.addEventListener('input', layoutCalibration);
+    window.addEventListener('resize', layoutCalibration);
     new MutationObserver(syncPreview).observe(filenameEl, { childList: true, characterData: true, subtree: true });
 
-    playEl.addEventListener('click', () => { preview.style.display = 'none'; });
-    exitEl.addEventListener('click', () => { setTimeout(syncPreview, 0); });
+    playEl.addEventListener('click', () => {
+      preview.style.display = 'none';
+      cropBand.style.display = 'none';
+      guide.style.display = 'none';
+    });
 
+    exitEl.addEventListener('click', () => { setTimeout(syncPreview, 0); });
     setTimeout(syncPreview, 500);
   </script>
 </body>
