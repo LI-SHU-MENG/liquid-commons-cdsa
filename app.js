@@ -15,11 +15,14 @@ const images = [
   'North Atlantic_2.jpeg'
 ];
 
-const TARGET_ASPECT=7680/856;
+const TARGET_WIDTH=7680;
+const TARGET_HEIGHT=856;
+const TARGET_ASPECT=TARGET_WIDTH/TARGET_HEIGHT;
 const saved=JSON.parse(localStorage.getItem('liquidCommonsHorizons')||'{}');
 const horizons=Object.fromEntries(images.map(f=>[f,saved[f]??0.5]));
 let current=0, playback=false, startTime=performance.now();
-let totalDuration=24, morphStrength=0.050;
+let totalDuration=48, morphStrength=0.050;
+let recording=false;
 
 const stage=document.querySelector('#stage');
 const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});
@@ -51,8 +54,6 @@ const material=new THREE.ShaderMaterial({
 
     void main(){
       float m=clamp(uMix,0.0,1.0);
-
-      // Stronger left-to-right moving transition front.
       float front=-0.08 + m*1.16;
       float horizonDist=abs(vUv.y-.5);
       float organic=(0.028*sin(vUv.y*21.0+uTime*.22)
@@ -98,7 +99,11 @@ images.forEach((file,i)=>loader.load(encodeURI(`./public/images/${file}`),tex=>{
   if(i===current && !playback) setPair(i,i,0);
 },undefined,e=>console.error('Failed to load',file,e)));
 
-function resize(){const r=stage.getBoundingClientRect();renderer.setSize(Math.max(2,r.width),Math.max(2,r.height),false)}
+function resize(){
+  if(recording) return;
+  const r=stage.getBoundingClientRect();
+  renderer.setSize(Math.max(2,r.width),Math.max(2,r.height),false);
+}
 window.addEventListener('resize',resize);
 
 const slider=document.querySelector('#horizonSlider');
@@ -108,6 +113,8 @@ const counter=document.querySelector('#counter');
 const morphInput=document.querySelector('#morphInput');
 const morphValue=document.querySelector('#morphValue');
 const durationInput=document.querySelector('#durationInput');
+const recordBtn=document.querySelector('#recordBtn');
+const recordStatus=document.querySelector('#recordStatus');
 
 function updateUI(){
   slider.value=horizons[images[current]]; value.textContent=(+slider.value).toFixed(3);
@@ -121,17 +128,91 @@ slider.addEventListener('input',()=>{
 document.querySelector('#prevBtn').onclick=()=>{current=(current-1+images.length)%images.length;updateUI()};
 document.querySelector('#nextBtn').onclick=()=>{current=(current+1)%images.length;updateUI()};
 durationInput.value=totalDuration;
-durationInput.oninput=e=>totalDuration=Math.max(12,+e.target.value||24);
+durationInput.oninput=e=>{
+  totalDuration=Math.max(12,+e.target.value||48);
+  recordBtn.textContent=`Record ${totalDuration}s`;
+};
 morphInput.value=morphStrength; morphValue.textContent=morphStrength.toFixed(3);
 morphInput.oninput=e=>{morphStrength=+e.target.value;material.uniforms.uStrength.value=morphStrength;morphValue.textContent=morphStrength.toFixed(3)};
 document.querySelector('#playBtn').onclick=()=>{playback=true;document.body.classList.add('playback');startTime=performance.now();resize()};
-document.querySelector('#exitPlayback').onclick=()=>{playback=false;document.body.classList.remove('playback');current=0;updateUI();resize()};
+document.querySelector('#exitPlayback').onclick=()=>{if(recording)return;playback=false;document.body.classList.remove('playback');current=0;updateUI();resize()};
+
+function getRecorderMime(){
+  const candidates=[
+    'video/mp4;codecs=avc1.42E01E',
+    'video/mp4',
+    'video/webm;codecs=vp9',
+    'video/webm;codecs=vp8',
+    'video/webm'
+  ];
+  return candidates.find(t=>window.MediaRecorder?.isTypeSupported?.(t))||'';
+}
+
+recordBtn.onclick=async()=>{
+  if(recording) return;
+  if(!renderer.domElement.captureStream || !window.MediaRecorder){
+    alert('This browser cannot record the canvas directly. Try Chrome or Safari 18+.');
+    return;
+  }
+  if(!textures.every(Boolean)){
+    alert('Images are still loading. Wait a few seconds, then press Record again.');
+    return;
+  }
+
+  recording=true;
+  recordBtn.disabled=true;
+  recordStatus.textContent='Preparing 7680×856…';
+
+  const previousPixelRatio=renderer.getPixelRatio();
+  renderer.setPixelRatio(1);
+  renderer.setSize(TARGET_WIDTH,TARGET_HEIGHT,false);
+
+  playback=true;
+  document.body.classList.add('playback');
+  startTime=performance.now();
+  material.uniforms.uTime.value=0;
+  setPair(0,1,0);
+  renderer.render(scene,camera);
+
+  const stream=renderer.domElement.captureStream(30);
+  const mime=getRecorderMime();
+  const options=mime?{mimeType:mime,videoBitsPerSecond:50000000}:{videoBitsPerSecond:50000000};
+  let recorder;
+  try{recorder=new MediaRecorder(stream,options)}catch(e){recorder=new MediaRecorder(stream)}
+  const chunks=[];
+  recorder.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data)};
+  recorder.onstop=()=>{
+    const actualType=recorder.mimeType||mime||'video/webm';
+    const blob=new Blob(chunks,{type:actualType});
+    const ext=actualType.includes('mp4')?'mp4':'webm';
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=`Common_Horizon_7680x856_${totalDuration}s.${ext}`;
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+
+    recording=false;
+    playback=false;
+    document.body.classList.remove('playback');
+    renderer.setPixelRatio(previousPixelRatio);
+    resize();
+    current=0;
+    updateUI();
+    recordBtn.disabled=false;
+    recordStatus.textContent=`Exported ${TARGET_WIDTH}×${TARGET_HEIGHT} ${ext.toUpperCase()}`;
+  };
+
+  recorder.start(1000);
+  recordStatus.textContent=`Recording ${totalDuration}s at ${TARGET_WIDTH}×${TARGET_HEIGHT}…`;
+  setTimeout(()=>{if(recorder.state!=='inactive')recorder.stop()},totalDuration*1000+120);
+};
 
 resize(); updateUI();
 function loop(now){
-  material.uniforms.uTime.value=now/1000;
+  const elapsed=(now-startTime)/1000;
+  material.uniforms.uTime.value=playback?elapsed:now/1000;
   if(playback){
-    const t=((now-startTime)/1000)%totalDuration;
+    const t=elapsed%totalDuration;
     const segment=totalDuration/images.length;
     const a=Math.floor(t/segment)%images.length;
     const b=(a+1)%images.length;
