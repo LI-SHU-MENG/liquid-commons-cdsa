@@ -34,48 +34,51 @@ const scene=new THREE.Scene();
 const camera=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
 
 const material=new THREE.ShaderMaterial({
-  uniforms:{uA:{value:null},uB:{value:null},uMix:{value:0},uTime:{value:0},uHorizonA:{value:.5},uHorizonB:{value:.5},uSourceAspectA:{value:1.333},uSourceAspectB:{value:1.333},uTargetAspect:{value:TARGET_ASPECT},uStrength:{value:morphStrength}},
+  uniforms:{
+    uA:{value:null},uB:{value:null},uC:{value:null},
+    uPhase:{value:0},uTime:{value:0},
+    uHorizonA:{value:.5},uHorizonB:{value:.5},uHorizonC:{value:.5},
+    uSourceAspectA:{value:1.333},uSourceAspectB:{value:1.333},uSourceAspectC:{value:1.333},
+    uTargetAspect:{value:TARGET_ASPECT},uStrength:{value:morphStrength}
+  },
   vertexShader:`varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position,1.0);}`,
   fragmentShader:`
-    precision highp float;varying vec2 vUv;
-    uniform sampler2D uA,uB;uniform float uMix,uTime,uHorizonA,uHorizonB,uSourceAspectA,uSourceAspectB,uTargetAspect,uStrength;
+    precision highp float;
+    varying vec2 vUv;
+    uniform sampler2D uA,uB,uC;
+    uniform float uPhase,uTime;
+    uniform float uHorizonA,uHorizonB,uHorizonC;
+    uniform float uSourceAspectA,uSourceAspectB,uSourceAspectC,uTargetAspect,uStrength;
 
     vec2 sourceUV(vec2 uv,float horizon,float srcAspect,float phase){
       float visible=srcAspect/uTargetAspect;
       float d=uv.y-.5;
-      float horizonMask=pow(clamp(abs(d)*2.0,0.0,1.0),1.55);
+      float horizonMask=pow(clamp(abs(d)*2.0,0.0,1.0),1.65);
 
-      // A restrained horizontal current only. The calibrated horizon never moves vertically.
-      float wave=sin(uv.y*12.0+uTime*.055+phase)
-               +0.30*sin(uv.y*27.0-uTime*.035+phase*1.35);
-      float x=uv.x + wave*uStrength*.022*horizonMask;
+      // Extremely slow horizontal current only. The horizon remains vertically locked.
+      float wave=sin(uv.y*10.0+uTime*.030+phase)
+               +0.24*sin(uv.y*23.0-uTime*.018+phase*1.21);
+      float x=uv.x + wave*uStrength*.016*horizonMask;
       float y=horizon+d*visible;
       return vec2(clamp(x,0.002,.998),clamp(y,0.002,.998));
     }
 
     void main(){
-      float m=clamp(uMix,0.0,1.0);
-      float horizonDist=abs(vUv.y-.5);
+      float p=clamp(uPhase,0.0,1.0);
 
-      // One continuous transition: it starts immediately and only finishes
-      // on the exact last frame of the segment, so there is no hold between images.
-      float soft=0.34;
-      float front=mix(-0.42,1.42,m);
-      float organic=(0.014*sin(vUv.y*15.0+uTime*.045)
-                    +0.008*sin(vUv.y*31.0-uTime*.028)
-                    +0.004*sin(vUv.x*5.0+vUv.y*11.0));
-      organic*=smoothstep(0.025,0.44,horizonDist);
+      vec4 a=texture2D(uA,sourceUV(vUv,uHorizonA,uSourceAspectA,0.0));
+      vec4 b=texture2D(uB,sourceUV(vUv,uHorizonB,uSourceAspectB,0.7));
+      vec4 c=texture2D(uC,sourceUV(vUv,uHorizonC,uSourceAspectC,1.4));
 
-      float localMix=1.0-smoothstep(front-soft,front+soft,vUv.x+organic);
-      localMix=clamp(localMix,0.0,1.0);
+      // Quadratic B-spline weights. Three neighbouring photographs are always
+      // present and the weights remain continuous across every image boundary.
+      float wA=0.5*(1.0-p)*(1.0-p);
+      float wB=0.75-(p-0.5)*(p-0.5);
+      float wC=0.5*p*p;
+      float sum=wA+wB+wC;
 
-      vec2 uvA=sourceUV(vUv,uHorizonA,uSourceAspectA,0.0);
-      vec2 uvB=sourceUV(vUv,uHorizonB,uSourceAspectB,0.9);
-      vec4 a=texture2D(uA,uvA);
-      vec4 b=texture2D(uB,uvB);
-
-      // Pure two-image interpolation: no dark overlay, no empty gap, no edge push.
-      gl_FragColor=mix(a,b,localMix);
+      vec4 col=(a*wA+b*wB+c*wC)/sum;
+      gl_FragColor=vec4(col.rgb,1.0);
     }`
 });
 scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2),material));
@@ -91,24 +94,30 @@ function prepTexture(tex){
   return tex;
 }
 function texAspect(t){return t?.image?.width&&t?.image?.height?t.image.width/t.image.height:1.333}
-function setPair(a,b,m=0){
-  const ta=textures[a];
-  const tb=textures[b]||ta;
-  if(!ta) return false;
+function idx(i){return (i+images.length)%images.length}
+function setTriple(a,b,c,p=0){
+  a=idx(a);b=idx(b);c=idx(c);
+  const ta=textures[a],tb=textures[b],tc=textures[c];
+  if(!ta||!tb||!tc) return false;
   material.uniforms.uA.value=ta;
   material.uniforms.uB.value=tb;
-  material.uniforms.uMix.value=m;
+  material.uniforms.uC.value=tc;
+  material.uniforms.uPhase.value=p;
   material.uniforms.uHorizonA.value=horizons[images[a]];
   material.uniforms.uHorizonB.value=horizons[images[b]];
+  material.uniforms.uHorizonC.value=horizons[images[c]];
   material.uniforms.uSourceAspectA.value=texAspect(ta);
   material.uniforms.uSourceAspectB.value=texAspect(tb);
+  material.uniforms.uSourceAspectC.value=texAspect(tc);
   return true;
 }
 
 images.forEach((file,i)=>loader.load(encodeURI(`./public/images/${file}`),tex=>{
   textures[i]=prepTexture(tex);
   if(typeof renderer.initTexture==='function') renderer.initTexture(textures[i]);
-  if(i===current && !playback) setPair(i,i,0);
+  if(!playback && textures[idx(current-1)] && textures[current] && textures[idx(current+1)]) {
+    setTriple(current-1,current,current+1,0.5);
+  }
 },undefined,e=>console.error('Failed to load',file,e)));
 
 function resize(){
@@ -133,16 +142,16 @@ function updateUI(){
   value.textContent=(+slider.value).toFixed(3);
   filename.textContent=images[current];
   counter.textContent=`${current+1} / ${images.length}`;
-  setPair(current,current,0);
+  setTriple(current-1,current,current+1,0.5);
 }
 slider.addEventListener('input',()=>{
   horizons[images[current]]=+slider.value;
   value.textContent=(+slider.value).toFixed(3);
   localStorage.setItem('liquidCommonsHorizons',JSON.stringify(horizons));
-  setPair(current,current,0);
+  setTriple(current-1,current,current+1,0.5);
 });
-document.querySelector('#prevBtn').onclick=()=>{current=(current-1+images.length)%images.length;updateUI()};
-document.querySelector('#nextBtn').onclick=()=>{current=(current+1)%images.length;updateUI()};
+document.querySelector('#prevBtn').onclick=()=>{current=idx(current-1);updateUI()};
+document.querySelector('#nextBtn').onclick=()=>{current=idx(current+1);updateUI()};
 durationInput.value=totalDuration;
 durationInput.oninput=e=>{
   totalDuration=Math.max(12,+e.target.value||150);
@@ -204,7 +213,7 @@ recordBtn.onclick=async()=>{
   document.body.classList.add('playback');
   startTime=performance.now();
   material.uniforms.uTime.value=0;
-  setPair(0,1,0);
+  setTriple(images.length-1,0,1,0.0);
   renderer.render(scene,camera);
 
   const stream=renderer.domElement.captureStream(30);
@@ -246,18 +255,15 @@ function loop(now){
   const elapsed=(now-startTime)/1000;
   material.uniforms.uTime.value=playback?elapsed:now/1000;
   if(playback){
-    const t=elapsed%totalDuration;
-    const segment=totalDuration/images.length;
-    const a=Math.floor(t/segment)%images.length;
-    const b=(a+1)%images.length;
-    const p=(t-a*segment)/segment;
-    const blend=p;
-    if(!setPair(a,b,blend)){
-      const fallback=textures.findIndex(Boolean);
-      if(fallback>=0) setPair(fallback,fallback,0);
+    const cycle=(elapsed%totalDuration)/totalDuration*images.length;
+    const b=Math.floor(cycle)%images.length;
+    const p=cycle-Math.floor(cycle);
+    const a=idx(b-1);
+    const c=idx(b+1);
+    if(!setTriple(a,b,c,p)){
+      const ready=textures.findIndex(Boolean);
+      if(ready>=0 && textures[idx(ready-1)] && textures[idx(ready+1)]) setTriple(ready-1,ready,ready+1,0.5);
     }
-  } else if(!material.uniforms.uA.value && textures[current]) {
-    setPair(current,current,0);
   }
   renderer.render(scene,camera);
   requestAnimationFrame(loop);
