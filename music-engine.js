@@ -5,6 +5,7 @@ const idx=i=>(i+IMAGES.length)%IMAGES.length;
 const feat={};
 let ctx=null,master=null,osc1=null,osc2=null,osc2Gain=null,filter=null,gain=null;
 let breath=null,breathFilter=null,breathGain=null,vibrato=null,vibratoDepth=null;
+let dryGain=null,wetGain=null,delay=null,convolver=null;
 let running=false,playback=false,startMs=0,current=0;
 
 function horizons(){return JSON.parse(localStorage.getItem('liquidCommonsHorizons')||'{}');}
@@ -40,12 +41,20 @@ function blendedFeature(a,b,c,p,key){const [wa,wb,wc]=weights(a,b,c,p);const fa=
 
 function noiseBuffer(context,seconds=4){
   const b=context.createBuffer(1,Math.floor(context.sampleRate*seconds),context.sampleRate);
-  const d=b.getChannelData(0);
-  let prev=0;
-  for(let i=0;i<d.length;i++){
-    const white=Math.random()*2-1;
-    prev=prev*.82+white*.18;
-    d[i]=prev*.22;
+  const d=b.getChannelData(0);let prev=0;
+  for(let i=0;i<d.length;i++){const white=Math.random()*2-1;prev=prev*.86+white*.14;d[i]=prev*.16;}
+  return b;
+}
+
+function reverbBuffer(context,seconds=4.8,decay=3.2){
+  const length=Math.floor(context.sampleRate*seconds);
+  const b=context.createBuffer(2,length,context.sampleRate);
+  for(let ch=0;ch<2;ch++){
+    const d=b.getChannelData(ch);
+    for(let i=0;i<length;i++){
+      const t=i/length;
+      d[i]=(Math.random()*2-1)*Math.pow(1-t,decay)*(0.72+Math.random()*.28);
+    }
   }
   return b;
 }
@@ -57,34 +66,35 @@ function apply(a,b,c,p){
   const contrast=blendedFeature(a,b,c,p,'contrast');
   const now=ctx.currentTime;
 
-  // One continuous blown horizon line: clearly higher and more audible than the previous low-brass version.
-  // Higher visual horizon -> higher pitch. Full calibrated range maps to roughly 82–145 Hz.
+  // A distant horn on the horizon: sustained, filtered, reverberant, never close to the listener.
   const normalized=clamp((.85-h)/.70,0,1);
-  const base=lerp(82,145,normalized);
-  const cutoff=lerp(700,2400,strength);
-  const level=lerp(.018,.055,clamp(contrast*.75+strength*.25,0,1));
-  const harmonicLevel=lerp(.10,.24,strength);
-  const breathLevel=lerp(.0025,.012,clamp(strength*.65+contrast*.35,0,1));
-  const vibHz=lerp(4.4,5.4,contrast);
-  const vibDepth=lerp(.25,1.35,contrast);
+  const base=lerp(92,132,normalized);
+  const cutoff=lerp(780,1650,strength);
+  const level=lerp(.012,.030,clamp(contrast*.65+strength*.35,0,1));
+  const harmonicLevel=lerp(.07,.16,strength);
+  const breathLevel=lerp(.0012,.0048,clamp(strength*.55+contrast*.45,0,1));
+  const vibHz=lerp(3.0,3.7,contrast);
+  const vibDepth=lerp(.12,.62,contrast);
+  const wet=lerp(.52,.68,1-strength*.35);
 
-  osc1.frequency.setTargetAtTime(base,now,.65);
-  osc2.frequency.setTargetAtTime(base*2.005,now,.65);
-  osc2Gain.gain.setTargetAtTime(harmonicLevel,now,.8);
-  filter.frequency.setTargetAtTime(cutoff,now,.8);
-  gain.gain.setTargetAtTime(level,now,.8);
-  breathFilter.frequency.setTargetAtTime(lerp(900,2600,strength),now,.8);
-  breathGain.gain.setTargetAtTime(breathLevel,now,.9);
-  vibrato.frequency.setTargetAtTime(vibHz,now,1.0);
-  vibratoDepth.gain.setTargetAtTime(vibDepth,now,1.0);
-  updateMonitor({h,base,strength,contrast,cutoff,level,breathLevel,vibHz,vibDepth});
+  osc1.frequency.setTargetAtTime(base,now,1.15);
+  osc2.frequency.setTargetAtTime(base*2.002,now,1.15);
+  osc2Gain.gain.setTargetAtTime(harmonicLevel,now,1.2);
+  filter.frequency.setTargetAtTime(cutoff,now,1.25);
+  gain.gain.setTargetAtTime(level,now,1.3);
+  breathFilter.frequency.setTargetAtTime(lerp(650,1350,strength),now,1.2);
+  breathGain.gain.setTargetAtTime(breathLevel,now,1.3);
+  vibrato.frequency.setTargetAtTime(vibHz,now,1.5);
+  vibratoDepth.gain.setTargetAtTime(vibDepth,now,1.5);
+  wetGain.gain.setTargetAtTime(wet,now,1.5);
+  dryGain.gain.setTargetAtTime(1-wet*.78,now,1.5);
+  updateMonitor({h,base,strength,contrast,cutoff,level,wet,vibHz,vibDepth});
 }
 
 function updateMonitor(q){
-  const parent=document.querySelector('#soundMonitor');
-  if(!parent)return;
+  const parent=document.querySelector('#soundMonitor');if(!parent)return;
   parent.style.gridTemplateColumns='1fr';
-  parent.innerHTML=`<div><strong>HORIZON — CONTINUOUS BLOWN TONE</strong><br>Frequency ${q.base.toFixed(1)} Hz<br>Horizon ${q.h.toFixed(3)}<br>Line strength ${q.strength.toFixed(3)}<br>Contrast ${q.contrast.toFixed(3)}<br>Timbre ${Math.round(q.cutoff)} Hz<br>Breath ${q.breathLevel.toFixed(4)}<br>Vibrato ${q.vibHz.toFixed(1)} Hz / ${q.vibDepth.toFixed(2)} Hz</div>`;
+  parent.innerHTML=`<div><strong>HORIZON — DISTANT HORN</strong><br>Frequency ${q.base.toFixed(1)} Hz<br>Horizon ${q.h.toFixed(3)}<br>Line strength ${q.strength.toFixed(3)}<br>Contrast ${q.contrast.toFixed(3)}<br>Filtered tone ${Math.round(q.cutoff)} Hz<br>Distance / reverb ${q.wet.toFixed(2)}<br>Vibrato ${q.vibHz.toFixed(1)} Hz / ${q.vibDepth.toFixed(2)} Hz</div>`;
 }
 
 async function analyseAll(){const entries=await Promise.all(IMAGES.map(async f=>[f,await analyse(f)]));entries.forEach(([k,v])=>feat[k]=v);}
@@ -92,31 +102,31 @@ async function analyseAll(){const entries=await Promise.all(IMAGES.map(async f=>
 async function init(){
   if(ctx){await ctx.resume();running=true;return;}
   ctx=new (window.AudioContext||window.webkitAudioContext)();
-  master=ctx.createGain();master.gain.value=.58;master.connect(ctx.destination);
+  master=ctx.createGain();master.gain.value=.52;master.connect(ctx.destination);
 
-  osc1=ctx.createOscillator();osc2=ctx.createOscillator();osc2Gain=ctx.createGain();
-  filter=ctx.createBiquadFilter();gain=ctx.createGain();
-  osc1.type='sawtooth';osc2.type='triangle';
-  osc1.frequency.value=108;osc2.frequency.value=216.5;osc2Gain.gain.value=.16;
-  filter.type='lowpass';filter.frequency.value=1400;filter.Q.value=.9;
-  gain.gain.value=.0001;
-  osc1.connect(filter);osc2.connect(osc2Gain);osc2Gain.connect(filter);filter.connect(gain);gain.connect(master);
+  osc1=ctx.createOscillator();osc2=ctx.createOscillator();osc2Gain=ctx.createGain();filter=ctx.createBiquadFilter();gain=ctx.createGain();
+  osc1.type='sawtooth';osc2.type='triangle';osc1.frequency.value=108;osc2.frequency.value=216.2;osc2Gain.gain.value=.11;
+  filter.type='lowpass';filter.frequency.value=1200;filter.Q.value=.55;gain.gain.value=.0001;
+
+  dryGain=ctx.createGain();wetGain=ctx.createGain();delay=ctx.createDelay(.5);convolver=ctx.createConvolver();
+  dryGain.gain.value=.45;wetGain.gain.value=.60;delay.delayTime.value=.12;convolver.buffer=reverbBuffer(ctx);
+
+  osc1.connect(filter);osc2.connect(osc2Gain);osc2Gain.connect(filter);filter.connect(gain);
+  gain.connect(dryGain);dryGain.connect(master);
+  gain.connect(delay);delay.connect(convolver);convolver.connect(wetGain);wetGain.connect(master);
 
   breath=ctx.createBufferSource();breath.buffer=noiseBuffer(ctx);breath.loop=true;
-  breathFilter=ctx.createBiquadFilter();breathFilter.type='bandpass';breathFilter.frequency.value=1500;breathFilter.Q.value=.7;
-  breathGain=ctx.createGain();breathGain.gain.value=.004;
-  breath.connect(breathFilter);breathFilter.connect(breathGain);breathGain.connect(master);
+  breathFilter=ctx.createBiquadFilter();breathFilter.type='bandpass';breathFilter.frequency.value=900;breathFilter.Q.value=.55;
+  breathGain=ctx.createGain();breathGain.gain.value=.002;
+  breath.connect(breathFilter);breathFilter.connect(breathGain);breathGain.connect(delay);
 
-  vibrato=ctx.createOscillator();vibrato.type='sine';vibrato.frequency.value=4.8;
-  vibratoDepth=ctx.createGain();vibratoDepth.gain.value=.55;
+  vibrato=ctx.createOscillator();vibrato.type='sine';vibrato.frequency.value=3.3;
+  vibratoDepth=ctx.createGain();vibratoDepth.gain.value=.25;
   vibrato.connect(vibratoDepth);vibratoDepth.connect(osc1.frequency);
 
   osc1.start();osc2.start();breath.start();vibrato.start();
-  await ctx.resume();
-  gain.gain.exponentialRampToValueAtTime(.03,ctx.currentTime+1.4);
-  running=true;
-  await analyseAll();
-  applyCurrent();
+  await ctx.resume();gain.gain.exponentialRampToValueAtTime(.020,ctx.currentTime+2.0);
+  running=true;await analyseAll();applyCurrent();
 }
 
 function currentIndex(){const name=document.querySelector('#filename')?.textContent?.trim();const i=IMAGES.indexOf(name);return i>=0?i:current;}
@@ -125,10 +135,7 @@ function applyCurrent(){current=currentIndex();apply(current,current,current,.5)
 function loop(t){
   if(running&&playback&&ctx?.state==='running'){
     const dur=Math.max(12,+document.querySelector('#durationInput')?.value||58);
-    const prog=(((t-startMs)/1000)%dur)/dur;
-    const cycle=prog*IMAGES.length;
-    const center=Math.floor(cycle)%IMAGES.length;
-    const p=cycle-Math.floor(cycle);
+    const prog=(((t-startMs)/1000)%dur)/dur,cycle=prog*IMAGES.length,center=Math.floor(cycle)%IMAGES.length,p=cycle-Math.floor(cycle);
     apply(center-1,center,center+1,p);
   }
   requestAnimationFrame(loop);
@@ -136,11 +143,11 @@ function loop(t){
 
 const oldBtn=document.querySelector('#soundProxy');
 if(oldBtn){
-  const clone=oldBtn.cloneNode(true);oldBtn.replaceWith(clone);clone.textContent='Start long tone';
+  const clone=oldBtn.cloneNode(true);oldBtn.replaceWith(clone);clone.textContent='Start distant horn';
   clone.addEventListener('click',async()=>{
-    if(!ctx){await init();clone.textContent='Long tone: on';}
-    else if(ctx.state==='running'){await ctx.suspend();clone.textContent='Long tone: off';}
-    else{await ctx.resume();clone.textContent='Long tone: on';applyCurrent();}
+    if(!ctx){await init();clone.textContent='Distant horn: on';}
+    else if(ctx.state==='running'){await ctx.suspend();clone.textContent='Distant horn: off';}
+    else{await ctx.resume();clone.textContent='Distant horn: on';applyCurrent();}
   });
 }
 
