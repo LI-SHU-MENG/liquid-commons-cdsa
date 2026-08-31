@@ -100,7 +100,7 @@ function blend(a,b,c,phase){
 function derive(f){
   const meanWarmth=(f.skyWarmth+f.seaWarmth)*0.5;
   const meanBrightness=(f.skyBrightness+f.seaBrightness)*0.5;
-  const baseHz=110+(meanWarmth-0.5)*0.55+(meanBrightness-0.5)*0.22;
+  const baseHz=220+(meanWarmth-0.5)*0.55+(meanBrightness-0.5)*0.22;
   const structuralEnergy=clamp(f.seaEdgeDensity*0.55+f.skyEdgeDensity*0.15+f.horizonContrast*0.30,0,1);
   const beatHz=lerp(0.08,0.18,structuralEnergy);
   const toneFilterHz=lerp(185,315,clamp(meanBrightness*0.65+f.horizonContrast*0.35,0,1));
