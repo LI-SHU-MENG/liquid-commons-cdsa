@@ -20,7 +20,7 @@
       <div class="row top-row">
         <strong>Liquid Commons — Horizon Calibration</strong>
         <div class="row">
-          <button id="soundProxy">Start sound</button>
+          <button id="soundProxy">Start music</button>
           <button id="playBtn">Playback</button>
           <button id="recordBtn">Record 58s</button>
         </div>
@@ -53,22 +53,18 @@
         </label>
       </div>
 
-      <div id="soundMonitor" style="display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:8px 14px;padding:10px 12px;border:1px solid #2a3038;border-radius:10px;background:#0c1015;font-size:12px;line-height:1.45;">
-        <div><strong>TONAL</strong><br>Base <span id="mBaseHz">—</span> Hz<br>Beat <span id="mBeatHz">—</span> Hz<br>LPF <span id="mToneFilter">—</span> Hz</div>
-        <div><strong>HORIZON</strong><br>Contrast <span id="mHorizonContrast">—</span></div>
-        <div><strong>SEA</strong><br>Brightness <span id="mSeaBrightness">—</span><br>Texture <span id="mSeaTexture">—</span><br>Filter <span id="mSeaFilter">—</span> Hz<br>Gain <span id="mSeaGain">—</span></div>
-        <div><strong>SKY</strong><br>Brightness <span id="mSkyBrightness">—</span><br>Texture <span id="mSkyTexture">—</span><br>Filter <span id="mSkyFilter">—</span> Hz<br>Gain <span id="mSkyGain">—</span></div>
+      <div id="soundMonitor" style="display:grid;grid-template-columns:repeat(3,minmax(150px,1fr));gap:8px 14px;padding:10px 12px;border:1px solid #2a3038;border-radius:10px;background:#0c1015;font-size:12px;line-height:1.45;">
+        <div><strong>HORIZON MUSIC</strong><br>Start music to analyse the image.</div>
       </div>
 
-      <p class="hint">Full source image shown for calibration. Red line = calibrated horizon. White translucent band = final 7680 × 856 crop. Playback remains unchanged.</p>
+      <p class="hint">Full source image shown for calibration. Red line = calibrated horizon. White translucent band = final 7680 × 856 crop.</p>
     </aside>
 
     <button id="exitPlayback" class="hidden">Exit playback</button>
   </main>
 
   <script type="module" src="./app.js?v=27218500"></script>
-  <script type="module" src="./sound-monitor.js?v=7d657c15"></script>
-  <script type="module" src="./sound-detail.js?v=9b915747"></script>
+  <script type="module" src="./music-engine.js?v=c5bfe60b"></script>
   <script>
     const preview = document.querySelector('#manualPreview');
     const cropBand = document.querySelector('#crop-band');
@@ -86,13 +82,8 @@
       const sh = stage.clientHeight;
       const imageAspect = preview.naturalWidth / preview.naturalHeight;
       let displayW, displayH;
-      if (sw / sh > imageAspect) {
-        displayH = sh;
-        displayW = displayH * imageAspect;
-      } else {
-        displayW = sw;
-        displayH = displayW / imageAspect;
-      }
+      if (sw / sh > imageAspect) { displayH = sh; displayW = displayH * imageAspect; }
+      else { displayW = sw; displayH = displayW / imageAspect; }
       const left = (sw - displayW) / 2;
       const top = (sh - displayH) / 2;
       const horizon = Number(sliderEl.value || 0.5);
@@ -122,22 +113,13 @@
     }
 
     preview.addEventListener('load', layoutCalibration);
-    preview.addEventListener('error', () => {
-      preview.style.display = 'none';
-      cropBand.style.display = 'none';
-      guide.style.display = 'none';
-      console.error('Calibration preview failed to load:', preview.src);
-    });
+    preview.addEventListener('error', () => { preview.style.display='none'; cropBand.style.display='none'; guide.style.display='none'; });
     sliderEl.addEventListener('input', layoutCalibration);
     window.addEventListener('resize', layoutCalibration);
-    new MutationObserver(syncPreview).observe(filenameEl, { childList: true, characterData: true, subtree: true });
-    playEl.addEventListener('click', () => {
-      preview.style.display = 'none';
-      cropBand.style.display = 'none';
-      guide.style.display = 'none';
-    });
-    exitEl.addEventListener('click', () => { setTimeout(syncPreview, 0); });
-    setTimeout(syncPreview, 500);
+    new MutationObserver(syncPreview).observe(filenameEl, { childList:true, characterData:true, subtree:true });
+    playEl.addEventListener('click', () => { preview.style.display='none'; cropBand.style.display='none'; guide.style.display='none'; });
+    exitEl.addEventListener('click', () => { setTimeout(syncPreview,0); });
+    setTimeout(syncPreview,500);
   </script>
 </body>
 </html>
