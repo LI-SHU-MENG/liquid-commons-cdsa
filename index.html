@@ -52,6 +52,13 @@
         </label>
       </div>
 
+      <div id="soundMonitor" style="display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:8px 14px;padding:10px 12px;border:1px solid #2a3038;border-radius:10px;background:#0c1015;font-size:12px;line-height:1.45;">
+        <div><strong>TONAL</strong><br>Base <span id="mBaseHz">—</span> Hz<br>Beat <span id="mBeatHz">—</span> Hz<br>LPF <span id="mToneFilter">—</span> Hz</div>
+        <div><strong>HORIZON</strong><br>Contrast <span id="mHorizonContrast">—</span></div>
+        <div><strong>SEA</strong><br>Brightness <span id="mSeaBrightness">—</span><br>Texture <span id="mSeaTexture">—</span><br>Filter <span id="mSeaFilter">—</span> Hz<br>Gain <span id="mSeaGain">—</span></div>
+        <div><strong>SKY</strong><br>Brightness <span id="mSkyBrightness">—</span><br>Texture <span id="mSkyTexture">—</span><br>Filter <span id="mSkyFilter">—</span> Hz<br>Gain <span id="mSkyGain">—</span></div>
+      </div>
+
       <p class="hint">Move the slider until the real horizon matches the red line. Values are saved automatically in this browser. Playback runs one seamless 58-second loop.</p>
     </aside>
 
@@ -59,6 +66,7 @@
   </main>
 
   <script type="module" src="./app.js?v=27218500"></script>
+  <script type="module" src="./sound-monitor.js?v=2247ce9c"></script>
   <script>
     const preview = document.querySelector('#manualPreview');
     const stage = document.querySelector('#stage');
