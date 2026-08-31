@@ -107,9 +107,9 @@ const material = new THREE.ShaderMaterial({
     void main() {
       float p = clamp(uPhase, 0.0, 1.0);
 
-      vec4 a = texture2D(uA, sourceUV(vUv, uHorizonA, uSourceAspectA, 0.0));
-      vec4 b = texture2D(uB, sourceUV(vUv, uHorizonB, uSourceAspectB, 0.7));
-      vec4 c = texture2D(uC, sourceUV(vUv, uHorizonC, uSourceAspectC, 1.4));
+    vec4 a = texture2D(uA, sourceUV(vUv, uHorizonA, uSourceAspectA, 0.0));
+vec4 b = texture2D(uB, sourceUV(vUv, uHorizonB, uSourceAspectB, 0.0));
+vec4 c = texture2D(uC, sourceUV(vUv, uHorizonC, uSourceAspectC, 0.0));
 
       // continuous chained blending
       // three neighbouring images are always present
