@@ -4,12 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Liquid Commons — CDSA 2026</title>
-  <link rel="stylesheet" href="./styles.css?v=093e2532" />
+  <link rel="stylesheet" href="./styles.css?v=90c8e474" />
 </head>
 <body>
   <main id="app">
     <div id="stage-wrap">
-      <div id="stage"></div>
+      <div id="stage">
+        <img id="manualPreview" alt="Current horizon image" style="position:absolute;left:0;width:100%;height:auto;z-index:2;pointer-events:none;display:none;" />
+      </div>
       <div id="horizon-guide"></div>
     </div>
 
@@ -56,24 +58,41 @@
     <button id="exitPlayback" class="hidden">Exit playback</button>
   </main>
 
-  <script type="module" src="./app.js?v=093e2532"></script>
+  <script type="module" src="./app.js?v=90c8e474"></script>
   <script>
-    const proxy = document.querySelector('#soundProxy');
-    proxy.addEventListener('click', () => {
-      const realButton = document.querySelector('button[aria-label="Toggle sound"]');
-      if (!realButton) {
-        proxy.textContent = 'Sound loading…';
-        setTimeout(() => {
-          const retry = document.querySelector('button[aria-label="Toggle sound"]');
-          if (retry) retry.click();
-        }, 250);
-        return;
-      }
-      realButton.click();
-      setTimeout(() => {
-        proxy.textContent = realButton.textContent === 'Sound: on' ? 'Sound: off' : 'Start sound';
-      }, 500);
-    });
+    const preview = document.querySelector('#manualPreview');
+    const stage = document.querySelector('#stage');
+    const filenameEl = document.querySelector('#filename');
+    const sliderEl = document.querySelector('#horizonSlider');
+    const playEl = document.querySelector('#playBtn');
+    const exitEl = document.querySelector('#exitPlayback');
+
+    function positionPreview() {
+      if (!preview.naturalWidth || !preview.naturalHeight || document.body.classList.contains('playback')) return;
+      const renderedHeight = stage.clientWidth * preview.naturalHeight / preview.naturalWidth;
+      const horizon = Number(sliderEl.value || 0.5);
+      preview.style.top = `${stage.clientHeight / 2 - horizon * renderedHeight}px`;
+      preview.style.display = 'block';
+    }
+
+    function syncPreview() {
+      const file = filenameEl.textContent.trim();
+      if (!file || document.body.classList.contains('playback')) return;
+      const nextSrc = `./public/images/${encodeURIComponent(file)}`;
+      if (!preview.src.endsWith(nextSrc)) preview.src = nextSrc;
+      else positionPreview();
+    }
+
+    preview.addEventListener('load', positionPreview);
+    sliderEl.addEventListener('input', positionPreview);
+    window.addEventListener('resize', positionPreview);
+
+    new MutationObserver(syncPreview).observe(filenameEl, { childList: true, characterData: true, subtree: true });
+
+    playEl.addEventListener('click', () => { preview.style.display = 'none'; });
+    exitEl.addEventListener('click', () => { setTimeout(syncPreview, 0); });
+
+    setTimeout(syncPreview, 500);
   </script>
 </body>
 </html>
