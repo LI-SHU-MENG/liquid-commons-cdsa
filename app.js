@@ -1,10 +1,10 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js';
 
-const images=[
+const images = [
   'North Atlantic.jpeg',
   'North Atlantic_3.JPG',
-  'Portugal Cove.jpeg',
   'Bell Island.jpeg',
+  'Portugal Cove.jpeg',
   'Fai Haven.jpeg',
   'Etretat.jpeg',
   'Poch Cove.jpeg',
