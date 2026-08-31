@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Liquid Commons — CDSA 2026</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main id="app">
+    <div id="stage-wrap">
+      <div id="stage"></div>
+      <div id="horizon-guide"></div>
+    </div>
+
+    <aside id="controls">
+      <div class="row top-row">
+        <strong>Liquid Commons — Horizon Calibration</strong>
+        <button id="playBtn">Playback</button>
+      </div>
+
+      <div class="meta">
+        <span id="counter"></span>
+        <span id="filename"></span>
+      </div>
+
+      <label>
+        Horizon position in source image
+        <input id="horizonSlider" type="range" min="0.15" max="0.85" step="0.001" value="0.5" />
+        <output id="horizonValue">0.500</output>
+      </label>
+
+      <div class="row">
+        <button id="prevBtn">Previous</button>
+        <button id="nextBtn">Next</button>
+      </div>
+
+      <div class="row">
+        <label class="compact">Duration (s)
+          <input id="durationInput" type="number" min="12" max="180" step="1" value="36" />
+        </label>
+        <label class="compact">Morph
+          <input id="morphInput" type="range" min="0" max="0.12" step="0.002" value="0.045" />
+        </label>
+      </div>
+
+      <p class="hint">Move the slider until the real horizon matches the red line. Values are saved automatically in this browser.</p>
+    </aside>
+
+    <button id="exitPlayback" class="hidden">Exit playback</button>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
