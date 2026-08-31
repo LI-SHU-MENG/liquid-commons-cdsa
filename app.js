@@ -51,7 +51,8 @@ const material=new THREE.ShaderMaterial({
       vec2 uvA=sourceUV(vUv,uHorizonA,uSourceAspectA,0.0);
       vec2 uvB=sourceUV(vUv,uHorizonB,uSourceAspectB,0.0);
       vec4 a=texture2D(uA,uvA); vec4 b=texture2D(uB,uvB);
-      float ripple=sin((vUv.y-.5)*10.0+uTime*.18)*0.035*sin(3.14159*m);
+      float edgeSoft=sin(3.14159*m);
+      float ripple=sin((vUv.y-.5)*10.0+uTime*.18)*0.018*edgeSoft*edgeSoft;
       gl_FragColor=mix(a,b,clamp(m+ripple,0.0,1.0));
     }`
 });
@@ -73,6 +74,7 @@ function setPair(a,b,m=0){
 
 images.forEach((file,i)=>loader.load(encodeURI(`./public/images/${file}`),tex=>{
   textures[i]=prepTexture(tex);
+  if(typeof renderer.initTexture==='function') renderer.initTexture(textures[i]);
   if(i===current && !playback) setPair(i,i,0);
 },undefined,e=>console.error('Failed to load',file,e)));
 
@@ -114,7 +116,9 @@ function loop(now){
     const a=Math.floor(t/segment)%images.length;
     const b=(a+1)%images.length;
     const p=(t-a*segment)/segment;
-    if(!setPair(a,b,p)){
+    const smooth=p*p*(3-2*p);
+    const blend=p*0.65+smooth*0.35;
+    if(!setPair(a,b,blend)){
       const fallback=textures.findIndex(Boolean);
       if(fallback>=0) setPair(fallback,fallback,0);
     }
