@@ -66,34 +66,9 @@
     <button id="exitPlayback" class="hidden">Exit playback</button>
   </main>
 
-  <script>
-    (() => {
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      if (!Ctx || !window.AudioParam) return;
-      const oscillatorFreqs = new WeakSet();
-      const originalCreateOscillator = Ctx.prototype.createOscillator;
-      Ctx.prototype.createOscillator = function(...args) {
-        const osc = originalCreateOscillator.apply(this, args);
-        oscillatorFreqs.add(osc.frequency);
-        const originalStart = osc.start.bind(osc);
-        osc.start = (...startArgs) => {
-          const v = osc.frequency.value;
-          if ((v >= 100 && v <= 130) || (v >= 200 && v <= 230)) osc.frequency.value = v * 2;
-          return originalStart(...startArgs);
-        };
-        return osc;
-      };
-      const originalSetTargetAtTime = AudioParam.prototype.setTargetAtTime;
-      AudioParam.prototype.setTargetAtTime = function(value, startTime, timeConstant) {
-        let v = value;
-        if (oscillatorFreqs.has(this) && ((v >= 100 && v <= 130) || (v >= 200 && v <= 230))) v *= 2;
-        return originalSetTargetAtTime.call(this, v, startTime, timeConstant);
-      };
-    })();
-  </script>
   <script type="module" src="./app.js?v=27218500"></script>
   <script type="module" src="./sound-monitor.js?v=7d657c15"></script>
-  <script type="module" src="./sound-detail.js?v=1aefe9d4"></script>
+  <script type="module" src="./sound-detail.js?v=9b915747"></script>
   <script>
     const preview = document.querySelector('#manualPreview');
     const cropBand = document.querySelector('#crop-band');
@@ -107,11 +82,9 @@
 
     function layoutCalibration() {
       if (!preview.naturalWidth || !preview.naturalHeight || document.body.classList.contains('playback')) return;
-
       const sw = stage.clientWidth;
       const sh = stage.clientHeight;
       const imageAspect = preview.naturalWidth / preview.naturalHeight;
-
       let displayW, displayH;
       if (sw / sh > imageAspect) {
         displayH = sh;
@@ -120,26 +93,22 @@
         displayW = sw;
         displayH = displayW / imageAspect;
       }
-
       const left = (sw - displayW) / 2;
       const top = (sh - displayH) / 2;
       const horizon = Number(sliderEl.value || 0.5);
       const horizonY = top + horizon * displayH;
       const cropH = displayW / TARGET_ASPECT;
       const cropTop = horizonY - cropH / 2;
-
       preview.style.left = `${left}px`;
       preview.style.top = `${top}px`;
       preview.style.width = `${displayW}px`;
       preview.style.height = `${displayH}px`;
       preview.style.display = 'block';
-
       cropBand.style.left = `${left}px`;
       cropBand.style.top = `${cropTop}px`;
       cropBand.style.width = `${displayW}px`;
       cropBand.style.height = `${cropH}px`;
       cropBand.style.display = 'block';
-
       guide.style.left = `${left}px`;
       guide.style.top = `${horizonY - 1}px`;
       guide.style.width = `${displayW}px`;
@@ -149,8 +118,7 @@
     function syncPreview() {
       const file = filenameEl.textContent.trim();
       if (!file || document.body.classList.contains('playback')) return;
-      const nextSrc = encodeURI(`./public/images/${file}`);
-      preview.src = nextSrc;
+      preview.src = encodeURI(`./public/images/${file}`);
     }
 
     preview.addEventListener('load', layoutCalibration);
@@ -163,13 +131,11 @@
     sliderEl.addEventListener('input', layoutCalibration);
     window.addEventListener('resize', layoutCalibration);
     new MutationObserver(syncPreview).observe(filenameEl, { childList: true, characterData: true, subtree: true });
-
     playEl.addEventListener('click', () => {
       preview.style.display = 'none';
       cropBand.style.display = 'none';
       guide.style.display = 'none';
     });
-
     exitEl.addEventListener('click', () => { setTimeout(syncPreview, 0); });
     setTimeout(syncPreview, 500);
   </script>
