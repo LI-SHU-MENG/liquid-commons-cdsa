@@ -66,30 +66,31 @@ function apply(a,b,c,p){
   const contrast=blendedFeature(a,b,c,p,'contrast');
   const now=ctx.currentTime;
 
-  // Higher, softer distant horn: rounded body, very gentle breath, no aggressive brass edge.
+  // Higher soft distant horn with a stronger, clearly audible horizon-to-pitch mapping.
   const normalized=clamp((.85-h)/.70,0,1);
-  const base=lerp(170,240,normalized);
-  const cutoff=lerp(900,1750,strength);
+  const shaped=Math.pow(normalized,0.88);
+  const base=lerp(205,325,shaped);
+  const cutoff=lerp(980,1850,strength);
   const level=lerp(.012,.026,clamp(contrast*.52+strength*.48,0,1));
-  const harmonicLevel=lerp(.09,.18,strength);
-  const breathLevel=lerp(.00018,.00075,clamp(strength*.55+contrast*.45,0,1));
-  const vibHz=lerp(2.6,3.2,contrast);
-  const vibDepth=lerp(.08,.28,contrast);
+  const harmonicLevel=lerp(.085,.17,strength);
+  const breathLevel=lerp(.00018,.00072,clamp(strength*.55+contrast*.45,0,1));
+  const vibHz=lerp(2.5,3.1,contrast);
+  const vibDepth=lerp(.08,.30,contrast);
   const wet=lerp(.60,.74,1-strength*.28);
-  const wetCutoff=lerp(950,1550,strength);
+  const wetCutoff=lerp(1000,1600,strength);
 
-  osc1.frequency.setTargetAtTime(base,now,1.25);
-  osc2.frequency.setTargetAtTime(base*2.003,now,1.25);
-  osc2Gain.gain.setTargetAtTime(harmonicLevel,now,1.4);
-  filter.frequency.setTargetAtTime(cutoff,now,1.45);
-  gain.gain.setTargetAtTime(level,now,1.6);
-  breathFilter.frequency.setTargetAtTime(lerp(650,1150,strength),now,1.5);
-  breathGain.gain.setTargetAtTime(breathLevel,now,1.7);
-  vibrato.frequency.setTargetAtTime(vibHz,now,1.8);
-  vibratoDepth.gain.setTargetAtTime(vibDepth,now,1.8);
-  wetGain.gain.setTargetAtTime(wet,now,1.8);
-  dryGain.gain.setTargetAtTime(1-wet*.86,now,1.8);
-  wetFilter.frequency.setTargetAtTime(wetCutoff,now,1.8);
+  osc1.frequency.setTargetAtTime(base,now,.78);
+  osc2.frequency.setTargetAtTime(base*2.003,now,.78);
+  osc2Gain.gain.setTargetAtTime(harmonicLevel,now,1.2);
+  filter.frequency.setTargetAtTime(cutoff,now,1.25);
+  gain.gain.setTargetAtTime(level,now,1.45);
+  breathFilter.frequency.setTargetAtTime(lerp(650,1150,strength),now,1.4);
+  breathGain.gain.setTargetAtTime(breathLevel,now,1.6);
+  vibrato.frequency.setTargetAtTime(vibHz,now,1.7);
+  vibratoDepth.gain.setTargetAtTime(vibDepth,now,1.7);
+  wetGain.gain.setTargetAtTime(wet,now,1.7);
+  dryGain.gain.setTargetAtTime(1-wet*.86,now,1.7);
+  wetFilter.frequency.setTargetAtTime(wetCutoff,now,1.7);
   updateMonitor({h,base,strength,contrast,cutoff,level,wet,vibHz,vibDepth,breathLevel});
 }
 
@@ -107,12 +108,12 @@ async function init(){
   master=ctx.createGain();master.gain.value=.50;master.connect(ctx.destination);
 
   osc1=ctx.createOscillator();osc2=ctx.createOscillator();osc2Gain=ctx.createGain();filter=ctx.createBiquadFilter();gain=ctx.createGain();
-  osc1.type='triangle';osc2.type='sine';osc1.frequency.value=205;osc2.frequency.value=410.5;osc2Gain.gain.value=.12;
-  filter.type='lowpass';filter.frequency.value=1250;filter.Q.value=.48;gain.gain.value=.0001;
+  osc1.type='triangle';osc2.type='sine';osc1.frequency.value=255;osc2.frequency.value=510.7;osc2Gain.gain.value=.115;
+  filter.type='lowpass';filter.frequency.value=1350;filter.Q.value=.45;gain.gain.value=.0001;
 
   dryGain=ctx.createGain();wetGain=ctx.createGain();delay=ctx.createDelay(.5);convolver=ctx.createConvolver();wetFilter=ctx.createBiquadFilter();
   dryGain.gain.value=.34;wetGain.gain.value=.66;delay.delayTime.value=.15;convolver.buffer=reverbBuffer(ctx);
-  wetFilter.type='lowpass';wetFilter.frequency.value=1250;wetFilter.Q.value=.30;
+  wetFilter.type='lowpass';wetFilter.frequency.value=1300;wetFilter.Q.value=.30;
 
   osc1.connect(filter);osc2.connect(osc2Gain);osc2Gain.connect(filter);filter.connect(gain);
   gain.connect(dryGain);dryGain.connect(master);
@@ -123,8 +124,8 @@ async function init(){
   breathGain=ctx.createGain();breathGain.gain.value=.00030;
   breath.connect(breathFilter);breathFilter.connect(breathGain);breathGain.connect(delay);
 
-  vibrato=ctx.createOscillator();vibrato.type='sine';vibrato.frequency.value=2.9;
-  vibratoDepth=ctx.createGain();vibratoDepth.gain.value=.14;
+  vibrato=ctx.createOscillator();vibrato.type='sine';vibrato.frequency.value=2.8;
+  vibratoDepth=ctx.createGain();vibratoDepth.gain.value=.15;
   vibrato.connect(vibratoDepth);vibratoDepth.connect(osc1.frequency);
 
   osc1.start();osc2.start();breath.start();vibrato.start();
