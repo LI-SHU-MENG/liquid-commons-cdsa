@@ -49,7 +49,7 @@ const material=new THREE.ShaderMaterial({
     void main(){
       float m=clamp(uMix,0.0,1.0);
       vec2 uvA=sourceUV(vUv,uHorizonA,uSourceAspectA,0.0);
-      vec2 uvB=sourceUV(vUv,uHorizonB,uSourceAspectB,2.7);
+      vec2 uvB=sourceUV(vUv,uHorizonB,uSourceAspectB,0.0);
       vec4 a=texture2D(uA,uvA); vec4 b=texture2D(uB,uvB);
       float ripple=sin((vUv.y-.5)*10.0+uTime*.18)*0.035*sin(3.14159*m);
       gl_FragColor=mix(a,b,clamp(m+ripple,0.0,1.0));
