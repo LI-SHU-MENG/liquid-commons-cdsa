@@ -42,11 +42,11 @@ function blendedFeature(a,b,c,p,key){const [wa,wb,wc]=weights(a,b,c,p);const fa=
 function noiseBuffer(context,seconds=4){
   const b=context.createBuffer(1,Math.floor(context.sampleRate*seconds),context.sampleRate);
   const d=b.getChannelData(0);let prev=0;
-  for(let i=0;i<d.length;i++){const white=Math.random()*2-1;prev=prev*.93+white*.07;d[i]=prev*.055;}
+  for(let i=0;i<d.length;i++){const white=Math.random()*2-1;prev=prev*.93+white*.07;d[i]=prev*.050;}
   return b;
 }
 
-function reverbBuffer(context,seconds=6.8,decay=3.5){
+function reverbBuffer(context,seconds=7.4,decay=3.35){
   const length=Math.floor(context.sampleRate*seconds);
   const b=context.createBuffer(2,length,context.sampleRate);
   for(let ch=0;ch<2;ch++){
@@ -67,45 +67,46 @@ function apply(a,b,c,p){
   const now=ctx.currentTime;
 
   const normalized=clamp((.85-h)/.70,0,1);
-  const shaped=Math.pow(normalized,.84);
-  const base=lerp(205,338,shaped);
-  const openness=clamp(strength*.74+contrast*.26,0,1);
-  const energy=clamp(contrast*.68+strength*.32,0,1);
+  const shaped=Math.pow(normalized,.80);
+  const base=lerp(190,380,shaped);
+  const openness=clamp(strength*.78+contrast*.22,0,1);
+  const energy=clamp(contrast*.72+strength*.28,0,1);
 
-  const cutoff=lerp(900,2250,openness);
-  const level=lerp(.014,.034,energy);
-  const harmonicLevel=lerp(.075,.19,openness);
-  const subLevel=lerp(.018,.050,energy);
-  const breathLevel=lerp(.00010,.00042,openness);
-  const vibHz=lerp(2.35,3.05,contrast);
-  const vibDepth=lerp(.06,.34,contrast);
-  const swellAmount=lerp(.025,.10,energy);
-  const wet=lerp(.58,.79,clamp((1-strength)*.45+contrast*.55,0,1));
-  const wetCutoff=lerp(900,1800,openness);
+  const cutoff=lerp(760,2850,openness);
+  const level=lerp(.010,.042,energy);
+  const harmonicLevel=lerp(.055,.235,openness);
+  const subLevel=lerp(.010,.072,energy);
+  const breathLevel=lerp(.00007,.00045,openness);
+  const vibHz=lerp(2.15,3.25,contrast);
+  const vibDepth=lerp(.04,.52,contrast);
+  const swellAmount=lerp(.015,.16,energy);
+  const wet=lerp(.48,.86,clamp((1-strength)*.42+contrast*.58,0,1));
+  const wetCutoff=lerp(760,2100,openness);
+  const stereoWidth=lerp(.010,.052,energy);
 
-  osc1.frequency.setTargetAtTime(base,now,.62);
-  osc2.frequency.setTargetAtTime(base*2.0025,now,.62);
-  subOsc.frequency.setTargetAtTime(base*.5,now,.72);
-  osc2Gain.gain.setTargetAtTime(harmonicLevel,now,1.0);
-  subGain.gain.setTargetAtTime(subLevel,now,1.1);
-  filter.frequency.setTargetAtTime(cutoff,now,1.0);
-  gain.gain.setTargetAtTime(level,now,1.2);
-  breathFilter.frequency.setTargetAtTime(lerp(620,1200,openness),now,1.2);
-  breathGain.gain.setTargetAtTime(breathLevel,now,1.4);
-  vibrato.frequency.setTargetAtTime(vibHz,now,1.4);
-  vibratoDepth.gain.setTargetAtTime(vibDepth,now,1.4);
-  swellDepth.gain.setTargetAtTime(swellAmount,now,1.5);
-  wetGain.gain.setTargetAtTime(wet,now,1.5);
-  dryGain.gain.setTargetAtTime(lerp(.42,.24,wet),now,1.5);
-  wetFilter.frequency.setTargetAtTime(wetCutoff,now,1.5);
-  stereoDelay.delayTime.setTargetAtTime(lerp(.016,.038,energy),now,1.6);
-  updateMonitor({h,base,strength,contrast,cutoff,level,wet,vibHz,vibDepth,breathLevel,subLevel,swellAmount});
+  osc1.frequency.setTargetAtTime(base,now,.52);
+  osc2.frequency.setTargetAtTime(base*2.0025,now,.52);
+  subOsc.frequency.setTargetAtTime(base*.5,now,.62);
+  osc2Gain.gain.setTargetAtTime(harmonicLevel,now,.85);
+  subGain.gain.setTargetAtTime(subLevel,now,.95);
+  filter.frequency.setTargetAtTime(cutoff,now,.82);
+  gain.gain.setTargetAtTime(level,now,.95);
+  breathFilter.frequency.setTargetAtTime(lerp(560,1320,openness),now,1.0);
+  breathGain.gain.setTargetAtTime(breathLevel,now,1.2);
+  vibrato.frequency.setTargetAtTime(vibHz,now,1.15);
+  vibratoDepth.gain.setTargetAtTime(vibDepth,now,1.15);
+  swellDepth.gain.setTargetAtTime(swellAmount,now,1.15);
+  wetGain.gain.setTargetAtTime(wet,now,1.15);
+  dryGain.gain.setTargetAtTime(lerp(.50,.18,wet),now,1.15);
+  wetFilter.frequency.setTargetAtTime(wetCutoff,now,1.15);
+  stereoDelay.delayTime.setTargetAtTime(stereoWidth,now,1.15);
+  updateMonitor({h,base,strength,contrast,cutoff,level,wet,vibHz,vibDepth,breathLevel,subLevel,swellAmount,stereoWidth});
 }
 
 function updateMonitor(q){
   const parent=document.querySelector('#soundMonitor');if(!parent)return;
   parent.style.gridTemplateColumns='1fr';
-  parent.innerHTML=`<div><strong>HORIZON — GRAND DISTANT HORN</strong><br>Frequency ${q.base.toFixed(1)} Hz<br>Horizon ${q.h.toFixed(3)}<br>Line strength ${q.strength.toFixed(3)}<br>Contrast ${q.contrast.toFixed(3)}<br>Body / filter ${Math.round(q.cutoff)} Hz<br>Distance / reverb ${q.wet.toFixed(2)}<br>Sub body ${q.subLevel.toFixed(3)}<br>Swell ${q.swellAmount.toFixed(3)}<br>Breath ${q.breathLevel.toFixed(4)}<br>Vibrato ${q.vibHz.toFixed(1)} Hz / ${q.vibDepth.toFixed(2)} Hz</div>`;
+  parent.innerHTML=`<div><strong>HORIZON — GRAND DISTANT HORN / HIGH VARIATION</strong><br>Frequency ${q.base.toFixed(1)} Hz<br>Horizon ${q.h.toFixed(3)}<br>Line strength ${q.strength.toFixed(3)}<br>Contrast ${q.contrast.toFixed(3)}<br>Body / filter ${Math.round(q.cutoff)} Hz<br>Distance / reverb ${q.wet.toFixed(2)}<br>Sub body ${q.subLevel.toFixed(3)}<br>Swell ${q.swellAmount.toFixed(3)}<br>Stereo width ${q.stereoWidth.toFixed(3)} s<br>Breath ${q.breathLevel.toFixed(4)}<br>Vibrato ${q.vibHz.toFixed(1)} Hz / ${q.vibDepth.toFixed(2)} Hz</div>`;
 }
 
 async function analyseAll(){const entries=await Promise.all(IMAGES.map(async f=>[f,await analyse(f)]));entries.forEach(([k,v])=>feat[k]=v);}
@@ -118,14 +119,14 @@ async function init(){
   osc1=ctx.createOscillator();osc2=ctx.createOscillator();subOsc=ctx.createOscillator();
   osc2Gain=ctx.createGain();subGain=ctx.createGain();filter=ctx.createBiquadFilter();gain=ctx.createGain();
   osc1.type='triangle';osc2.type='sine';subOsc.type='sine';
-  osc1.frequency.value=265;osc2.frequency.value=530.6;subOsc.frequency.value=132.5;
-  osc2Gain.gain.value=.12;subGain.gain.value=.030;
-  filter.type='lowpass';filter.frequency.value=1450;filter.Q.value=.42;gain.gain.value=.0001;
+  osc1.frequency.value=270;osc2.frequency.value=540.7;subOsc.frequency.value=135;
+  osc2Gain.gain.value=.12;subGain.gain.value=.028;
+  filter.type='lowpass';filter.frequency.value=1450;filter.Q.value=.40;gain.gain.value=.0001;
 
-  dryGain=ctx.createGain();wetGain=ctx.createGain();delay=ctx.createDelay(.6);convolver=ctx.createConvolver();wetFilter=ctx.createBiquadFilter();
-  stereoDelay=ctx.createDelay(.08);stereoMerge=ctx.createChannelMerger(2);
-  dryGain.gain.value=.34;wetGain.gain.value=.68;delay.delayTime.value=.16;convolver.buffer=reverbBuffer(ctx);
-  wetFilter.type='lowpass';wetFilter.frequency.value=1350;wetFilter.Q.value=.28;
+  dryGain=ctx.createGain();wetGain=ctx.createGain();delay=ctx.createDelay(.7);convolver=ctx.createConvolver();wetFilter=ctx.createBiquadFilter();
+  stereoDelay=ctx.createDelay(.09);stereoMerge=ctx.createChannelMerger(2);
+  dryGain.gain.value=.34;wetGain.gain.value=.68;delay.delayTime.value=.17;convolver.buffer=reverbBuffer(ctx);
+  wetFilter.type='lowpass';wetFilter.frequency.value=1350;wetFilter.Q.value=.26;
   stereoDelay.delayTime.value=.025;
 
   osc1.connect(filter);osc2.connect(osc2Gain);osc2Gain.connect(filter);subOsc.connect(subGain);subGain.connect(filter);filter.connect(gain);
@@ -138,8 +139,8 @@ async function init(){
   gain.connect(delay);delay.connect(convolver);convolver.connect(wetFilter);wetFilter.connect(wetGain);wetGain.connect(master);
 
   breath=ctx.createBufferSource();breath.buffer=noiseBuffer(ctx);breath.loop=true;
-  breathFilter=ctx.createBiquadFilter();breathFilter.type='bandpass';breathFilter.frequency.value=760;breathFilter.Q.value=.42;
-  breathGain=ctx.createGain();breathGain.gain.value=.00020;
+  breathFilter=ctx.createBiquadFilter();breathFilter.type='bandpass';breathFilter.frequency.value=760;breathFilter.Q.value=.40;
+  breathGain=ctx.createGain();breathGain.gain.value=.00018;
   breath.connect(breathFilter);breathFilter.connect(breathGain);breathGain.connect(delay);
 
   vibrato=ctx.createOscillator();vibrato.type='sine';vibrato.frequency.value=2.7;
