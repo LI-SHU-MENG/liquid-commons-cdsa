@@ -16,12 +16,16 @@
     <aside id="controls">
       <div class="row top-row">
         <strong>Liquid Commons — Horizon Calibration</strong>
-        <button id="playBtn">Playback</button>
+        <div class="row">
+          <button id="playBtn">Playback</button>
+          <button id="recordBtn">Record 48s</button>
+        </div>
       </div>
 
       <div class="meta">
         <span id="counter"></span>
         <span id="filename"></span>
+        <span id="recordStatus"></span>
       </div>
 
       <label>
@@ -37,15 +41,15 @@
 
       <div class="row">
         <label class="compact">Duration (s)
-          <input id="durationInput" type="number" min="12" max="180" step="1" value="36" />
+          <input id="durationInput" type="number" min="12" max="180" step="1" value="48" />
         </label>
         <label class="compact">Morph
-          <input id="morphInput" type="range" min="0" max="0.12" step="0.002" value="0.045" />
-          <output id="morphValue">0.045</output>
+          <input id="morphInput" type="range" min="0" max="0.12" step="0.002" value="0.050" />
+          <output id="morphValue">0.050</output>
         </label>
       </div>
 
-      <p class="hint">Move the slider until the real horizon matches the red line. Values are saved automatically in this browser.</p>
+      <p class="hint">Move the slider until the real horizon matches the red line. Values are saved automatically in this browser. Record exports one seamless loop at 7680×856 when supported by the browser.</p>
     </aside>
 
     <button id="exitPlayback" class="hidden">Exit playback</button>
