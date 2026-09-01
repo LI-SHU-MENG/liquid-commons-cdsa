@@ -3,8 +3,13 @@ const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const lerp=(a,b,t)=>a+(b-a)*t;
 const idx=i=>(i+IMAGES.length)%IMAGES.length;
 const feat={};
-let ctx=null,master=null,osc1=null,osc2=null,osc2Gain=null,subOsc=null,subGain=null,filter=null,gain=null;
-let breath=null,breathFilter=null,breathGain=null,vibrato=null,vibratoDepth=null,swell=null,swellDepth=null;
+let ctx=null,master=null;
+let oboeOsc=null,oboeGain=null,oboeFilter=null;
+let sopranoOsc=null,sopranoGain=null,sopranoFilter=null;
+let tenorOsc=null,tenorGain=null,tenorFilter=null;
+let tromboneOsc=null,tromboneGain=null,tromboneFilter=null,subOsc=null,subGain=null;
+let breath=null,breathFilter=null,breathGain=null;
+let vibrato=null,vibratoDepth=null,swell=null,swellDepth=null;
 let dryGain=null,wetGain=null,delay=null,convolver=null,wetFilter=null,stereoDelay=null,stereoMerge=null;
 let running=false,playback=false,startMs=0,current=0;
 
@@ -42,11 +47,11 @@ function blendedFeature(a,b,c,p,key){const [wa,wb,wc]=weights(a,b,c,p);const fa=
 function noiseBuffer(context,seconds=4){
   const b=context.createBuffer(1,Math.floor(context.sampleRate*seconds),context.sampleRate);
   const d=b.getChannelData(0);let prev=0;
-  for(let i=0;i<d.length;i++){const white=Math.random()*2-1;prev=prev*.93+white*.07;d[i]=prev*.050;}
+  for(let i=0;i<d.length;i++){const white=Math.random()*2-1;prev=prev*.94+white*.06;d[i]=prev*.040;}
   return b;
 }
 
-function reverbBuffer(context,seconds=7.4,decay=3.35){
+function reverbBuffer(context,seconds=7.2,decay=3.45){
   const length=Math.floor(context.sampleRate*seconds);
   const b=context.createBuffer(2,length,context.sampleRate);
   for(let ch=0;ch<2;ch++){
@@ -59,6 +64,14 @@ function reverbBuffer(context,seconds=7.4,decay=3.35){
   return b;
 }
 
+function timbreWeights(strength,contrast){
+  const x=clamp(strength*.62+contrast*.38,0,1);
+  const bell=(center,width)=>Math.exp(-Math.pow((x-center)/width,2));
+  let o=bell(.10,.25),s=bell(.38,.24),t=bell(.66,.25),r=bell(.92,.25);
+  const sum=o+s+t+r;
+  return {oboe:o/sum,soprano:s/sum,tenor:t/sum,trombone:r/sum};
+}
+
 function apply(a,b,c,p){
   if(!ctx||ctx.state!=='running')return;
   const h=blendedHorizon(a,b,c,p);
@@ -67,46 +80,47 @@ function apply(a,b,c,p){
   const now=ctx.currentTime;
 
   const normalized=clamp((.85-h)/.70,0,1);
-  const shaped=Math.pow(normalized,.80);
-  const base=lerp(190,380,shaped);
-  const openness=clamp(strength*.78+contrast*.22,0,1);
+  const base=lerp(190,380,Math.pow(normalized,.80));
+  const tw=timbreWeights(strength,contrast);
   const energy=clamp(contrast*.72+strength*.28,0,1);
+  const openness=clamp(strength*.75+contrast*.25,0,1);
 
-  const cutoff=lerp(760,2850,openness);
-  const level=lerp(.010,.042,energy);
-  const harmonicLevel=lerp(.055,.235,openness);
-  const subLevel=lerp(.010,.072,energy);
-  const breathLevel=lerp(.00007,.00045,openness);
-  const vibHz=lerp(2.15,3.25,contrast);
-  const vibDepth=lerp(.04,.52,contrast);
-  const swellAmount=lerp(.015,.16,energy);
-  const wet=lerp(.48,.86,clamp((1-strength)*.42+contrast*.58,0,1));
-  const wetCutoff=lerp(760,2100,openness);
-  const stereoWidth=lerp(.010,.052,energy);
+  oboeOsc.frequency.setTargetAtTime(base*1.004,now,.55);
+  sopranoOsc.frequency.setTargetAtTime(base*1.002,now,.55);
+  tenorOsc.frequency.setTargetAtTime(base*.997,now,.55);
+  tromboneOsc.frequency.setTargetAtTime(base*.995,now,.55);
+  subOsc.frequency.setTargetAtTime(base*.50,now,.68);
 
-  osc1.frequency.setTargetAtTime(base,now,.52);
-  osc2.frequency.setTargetAtTime(base*2.0025,now,.52);
-  subOsc.frequency.setTargetAtTime(base*.5,now,.62);
-  osc2Gain.gain.setTargetAtTime(harmonicLevel,now,.85);
-  subGain.gain.setTargetAtTime(subLevel,now,.95);
-  filter.frequency.setTargetAtTime(cutoff,now,.82);
-  gain.gain.setTargetAtTime(level,now,.95);
-  breathFilter.frequency.setTargetAtTime(lerp(560,1320,openness),now,1.0);
-  breathGain.gain.setTargetAtTime(breathLevel,now,1.2);
-  vibrato.frequency.setTargetAtTime(vibHz,now,1.15);
-  vibratoDepth.gain.setTargetAtTime(vibDepth,now,1.15);
-  swellDepth.gain.setTargetAtTime(swellAmount,now,1.15);
-  wetGain.gain.setTargetAtTime(wet,now,1.15);
-  dryGain.gain.setTargetAtTime(lerp(.50,.18,wet),now,1.15);
-  wetFilter.frequency.setTargetAtTime(wetCutoff,now,1.15);
-  stereoDelay.delayTime.setTargetAtTime(stereoWidth,now,1.15);
-  updateMonitor({h,base,strength,contrast,cutoff,level,wet,vibHz,vibDepth,breathLevel,subLevel,swellAmount,stereoWidth});
+  oboeGain.gain.setTargetAtTime(tw.oboe*lerp(.018,.034,energy),now,.9);
+  sopranoGain.gain.setTargetAtTime(tw.soprano*lerp(.020,.038,energy),now,.9);
+  tenorGain.gain.setTargetAtTime(tw.tenor*lerp(.023,.044,energy),now,.9);
+  tromboneGain.gain.setTargetAtTime(tw.trombone*lerp(.028,.054,energy),now,.9);
+  subGain.gain.setTargetAtTime(tw.trombone*lerp(.008,.050,energy),now,1.0);
+
+  oboeFilter.frequency.setTargetAtTime(lerp(1250,2700,openness),now,1.0);
+  sopranoFilter.frequency.setTargetAtTime(lerp(1500,3300,openness),now,1.0);
+  tenorFilter.frequency.setTargetAtTime(lerp(900,2200,openness),now,1.0);
+  tromboneFilter.frequency.setTargetAtTime(lerp(650,1800,openness),now,1.0);
+
+  breathGain.gain.setTargetAtTime(lerp(.00005,.00032,1-tw.trombone),now,1.2);
+  breathFilter.frequency.setTargetAtTime(lerp(700,1500,tw.oboe+tw.soprano),now,1.2);
+
+  const wet=lerp(.52,.86,clamp((1-strength)*.42+contrast*.58,0,1));
+  wetGain.gain.setTargetAtTime(wet,now,1.2);
+  dryGain.gain.setTargetAtTime(lerp(.48,.20,wet),now,1.2);
+  wetFilter.frequency.setTargetAtTime(lerp(850,1900,openness),now,1.2);
+  stereoDelay.delayTime.setTargetAtTime(lerp(.012,.050,energy),now,1.2);
+  vibratoDepth.gain.setTargetAtTime(lerp(.04,.34,contrast),now,1.2);
+  swellDepth.gain.setTargetAtTime(lerp(.015,.13,energy),now,1.2);
+
+  updateMonitor({h,base,strength,contrast,tw,wet});
 }
 
 function updateMonitor(q){
   const parent=document.querySelector('#soundMonitor');if(!parent)return;
+  const dominant=Object.entries(q.tw).sort((a,b)=>b[1]-a[1])[0][0];
   parent.style.gridTemplateColumns='1fr';
-  parent.innerHTML=`<div><strong>HORIZON — GRAND DISTANT HORN / HIGH VARIATION</strong><br>Frequency ${q.base.toFixed(1)} Hz<br>Horizon ${q.h.toFixed(3)}<br>Line strength ${q.strength.toFixed(3)}<br>Contrast ${q.contrast.toFixed(3)}<br>Body / filter ${Math.round(q.cutoff)} Hz<br>Distance / reverb ${q.wet.toFixed(2)}<br>Sub body ${q.subLevel.toFixed(3)}<br>Swell ${q.swellAmount.toFixed(3)}<br>Stereo width ${q.stereoWidth.toFixed(3)} s<br>Breath ${q.breathLevel.toFixed(4)}<br>Vibrato ${q.vibHz.toFixed(1)} Hz / ${q.vibDepth.toFixed(2)} Hz</div>`;
+  parent.innerHTML=`<div><strong>HORIZON — BOLÉRO-INSPIRED TIMBRE MORPH</strong><br>Frequency ${q.base.toFixed(1)} Hz<br>Horizon ${q.h.toFixed(3)}<br>Line strength ${q.strength.toFixed(3)}<br>Contrast ${q.contrast.toFixed(3)}<br>Dominant colour: ${dominant}<br>Oboe ${q.tw.oboe.toFixed(2)} · Soprano sax ${q.tw.soprano.toFixed(2)} · Tenor sax ${q.tw.tenor.toFixed(2)} · Trombone ${q.tw.trombone.toFixed(2)}<br>Distance / reverb ${q.wet.toFixed(2)}</div>`;
 }
 
 async function analyseAll(){const entries=await Promise.all(IMAGES.map(async f=>[f,await analyse(f)]));entries.forEach(([k,v])=>feat[k]=v);}
@@ -114,46 +128,53 @@ async function analyseAll(){const entries=await Promise.all(IMAGES.map(async f=>
 async function init(){
   if(ctx){await ctx.resume();running=true;return;}
   ctx=new (window.AudioContext||window.webkitAudioContext)();
-  master=ctx.createGain();master.gain.value=.56;master.connect(ctx.destination);
+  master=ctx.createGain();master.gain.value=.62;master.connect(ctx.destination);
 
-  osc1=ctx.createOscillator();osc2=ctx.createOscillator();subOsc=ctx.createOscillator();
-  osc2Gain=ctx.createGain();subGain=ctx.createGain();filter=ctx.createBiquadFilter();gain=ctx.createGain();
-  osc1.type='triangle';osc2.type='sine';subOsc.type='sine';
-  osc1.frequency.value=270;osc2.frequency.value=540.7;subOsc.frequency.value=135;
-  osc2Gain.gain.value=.12;subGain.gain.value=.028;
-  filter.type='lowpass';filter.frequency.value=1450;filter.Q.value=.40;gain.gain.value=.0001;
+  oboeOsc=ctx.createOscillator();sopranoOsc=ctx.createOscillator();tenorOsc=ctx.createOscillator();tromboneOsc=ctx.createOscillator();subOsc=ctx.createOscillator();
+  oboeGain=ctx.createGain();sopranoGain=ctx.createGain();tenorGain=ctx.createGain();tromboneGain=ctx.createGain();subGain=ctx.createGain();
+  oboeFilter=ctx.createBiquadFilter();sopranoFilter=ctx.createBiquadFilter();tenorFilter=ctx.createBiquadFilter();tromboneFilter=ctx.createBiquadFilter();
+
+  oboeOsc.type='sawtooth';sopranoOsc.type='triangle';tenorOsc.type='triangle';tromboneOsc.type='sine';subOsc.type='sine';
+  [oboeOsc,sopranoOsc,tenorOsc,tromboneOsc].forEach(o=>o.frequency.value=270);subOsc.frequency.value=135;
+  oboeGain.gain.value=sopranoGain.gain.value=tenorGain.gain.value=tromboneGain.gain.value=.0001;subGain.gain.value=.0001;
+
+  oboeFilter.type='bandpass';oboeFilter.frequency.value=1900;oboeFilter.Q.value=1.4;
+  sopranoFilter.type='lowpass';sopranoFilter.frequency.value=2400;sopranoFilter.Q.value=.55;
+  tenorFilter.type='lowpass';tenorFilter.frequency.value=1600;tenorFilter.Q.value=.70;
+  tromboneFilter.type='lowpass';tromboneFilter.frequency.value=1100;tromboneFilter.Q.value=.45;
+
+  oboeOsc.connect(oboeFilter);oboeFilter.connect(oboeGain);
+  sopranoOsc.connect(sopranoFilter);sopranoFilter.connect(sopranoGain);
+  tenorOsc.connect(tenorFilter);tenorFilter.connect(tenorGain);
+  tromboneOsc.connect(tromboneFilter);tromboneFilter.connect(tromboneGain);
+  subOsc.connect(subGain);
 
   dryGain=ctx.createGain();wetGain=ctx.createGain();delay=ctx.createDelay(.7);convolver=ctx.createConvolver();wetFilter=ctx.createBiquadFilter();
   stereoDelay=ctx.createDelay(.09);stereoMerge=ctx.createChannelMerger(2);
-  dryGain.gain.value=.34;wetGain.gain.value=.68;delay.delayTime.value=.17;convolver.buffer=reverbBuffer(ctx);
-  wetFilter.type='lowpass';wetFilter.frequency.value=1350;wetFilter.Q.value=.26;
+  dryGain.gain.value=.32;wetGain.gain.value=.70;delay.delayTime.value=.17;convolver.buffer=reverbBuffer(ctx);
+  wetFilter.type='lowpass';wetFilter.frequency.value=1350;wetFilter.Q.value=.28;
   stereoDelay.delayTime.value=.025;
 
-  osc1.connect(filter);osc2.connect(osc2Gain);osc2Gain.connect(filter);subOsc.connect(subGain);subGain.connect(filter);filter.connect(gain);
-
-  gain.connect(dryGain);
-  dryGain.connect(stereoMerge,0,0);
-  dryGain.connect(stereoDelay);stereoDelay.connect(stereoMerge,0,1);
-  stereoMerge.connect(master);
-
-  gain.connect(delay);delay.connect(convolver);convolver.connect(wetFilter);wetFilter.connect(wetGain);wetGain.connect(master);
+  [oboeGain,sopranoGain,tenorGain,tromboneGain,subGain].forEach(g=>{g.connect(dryGain);g.connect(delay);});
+  dryGain.connect(stereoMerge,0,0);dryGain.connect(stereoDelay);stereoDelay.connect(stereoMerge,0,1);stereoMerge.connect(master);
+  delay.connect(convolver);convolver.connect(wetFilter);wetFilter.connect(wetGain);wetGain.connect(master);
 
   breath=ctx.createBufferSource();breath.buffer=noiseBuffer(ctx);breath.loop=true;
-  breathFilter=ctx.createBiquadFilter();breathFilter.type='bandpass';breathFilter.frequency.value=760;breathFilter.Q.value=.40;
-  breathGain=ctx.createGain();breathGain.gain.value=.00018;
+  breathFilter=ctx.createBiquadFilter();breathFilter.type='bandpass';breathFilter.frequency.value=950;breathFilter.Q.value=.55;
+  breathGain=ctx.createGain();breathGain.gain.value=.00015;
   breath.connect(breathFilter);breathFilter.connect(breathGain);breathGain.connect(delay);
 
   vibrato=ctx.createOscillator();vibrato.type='sine';vibrato.frequency.value=2.7;
-  vibratoDepth=ctx.createGain();vibratoDepth.gain.value=.14;
-  vibrato.connect(vibratoDepth);vibratoDepth.connect(osc1.frequency);
+  vibratoDepth=ctx.createGain();vibratoDepth.gain.value=.12;
+  vibrato.connect(vibratoDepth);
+  [oboeOsc,sopranoOsc,tenorOsc,tromboneOsc].forEach(o=>vibratoDepth.connect(o.frequency));
 
-  swell=ctx.createOscillator();swell.type='sine';swell.frequency.value=.095;
-  swellDepth=ctx.createGain();swellDepth.gain.value=.05;
-  swell.connect(swellDepth);swellDepth.connect(gain.gain);
+  swell=ctx.createOscillator();swell.type='sine';swell.frequency.value=.085;
+  swellDepth=ctx.createGain();swellDepth.gain.value=.045;
+  swell.connect(swellDepth);swellDepth.connect(master.gain);
 
-  osc1.start();osc2.start();subOsc.start();breath.start();vibrato.start();swell.start();
-  await ctx.resume();gain.gain.exponentialRampToValueAtTime(.022,ctx.currentTime+3.2);
-  running=true;await analyseAll();applyCurrent();
+  oboeOsc.start();sopranoOsc.start();tenorOsc.start();tromboneOsc.start();subOsc.start();breath.start();vibrato.start();swell.start();
+  await ctx.resume();running=true;await analyseAll();applyCurrent();
 }
 
 function currentIndex(){const name=document.querySelector('#filename')?.textContent?.trim();const i=IMAGES.indexOf(name);return i>=0?i:current;}
@@ -170,11 +191,11 @@ function loop(t){
 
 const oldBtn=document.querySelector('#soundProxy');
 if(oldBtn){
-  const clone=oldBtn.cloneNode(true);oldBtn.replaceWith(clone);clone.textContent='Start grand distant horn';
+  const clone=oldBtn.cloneNode(true);oldBtn.replaceWith(clone);clone.textContent='Start Boléro horizon';
   clone.addEventListener('click',async()=>{
-    if(!ctx){await init();clone.textContent='Grand horn: on';}
-    else if(ctx.state==='running'){await ctx.suspend();clone.textContent='Grand horn: off';}
-    else{await ctx.resume();clone.textContent='Grand horn: on';applyCurrent();}
+    if(!ctx){await init();clone.textContent='Boléro horizon: on';}
+    else if(ctx.state==='running'){await ctx.suspend();clone.textContent='Boléro horizon: off';}
+    else{await ctx.resume();clone.textContent='Boléro horizon: on';applyCurrent();}
   });
 }
 
