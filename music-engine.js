@@ -27,7 +27,6 @@ async function analyse(file){
       strength=clamp((strength/w)/.20,0,1);
       contrast=clamp((contrast/w)/.30,0,1);
 
-      // Look for a compact bright source above the calibrated horizon.
       let best=-1,bestY=hr;
       for(let y=3;y<hr-2;y++){
         for(let x=4;x<w-4;x++){
@@ -43,7 +42,7 @@ async function analyse(file){
         }
       }
       const sun=clamp((best-.12)/.30,0,1);
-      const sunY=clamp(bestY/Math.max(1,hr),0,1); // 0 = high in sky, 1 = near horizon
+      const sunY=clamp(bestY/Math.max(1,hr),0,1);
       resolve({strength,contrast,sun,sunY});
     };
     img.onerror=()=>resolve({strength:.5,contrast:.4,sun:0,sunY:1});
@@ -54,6 +53,7 @@ async function analyse(file){
 function weights(a,b,c,p){const A=.5*(1-p)*(1-p),B=.75-(p-.5)*(p-.5),C=.5*p*p,s=A+B+C;return[A/s,B/s,C/s];}
 function blendedHorizon(a,b,c,p){const h=horizons(),[wa,wb,wc]=weights(a,b,c,p);return(h[IMAGES[idx(a)]]??.5)*wa+(h[IMAGES[idx(b)]]??.5)*wb+(h[IMAGES[idx(c)]]??.5)*wc;}
 function blendedFeature(a,b,c,p,key){const [wa,wb,wc]=weights(a,b,c,p);const def={strength:.5,contrast:.4,sun:0,sunY:1};const fa=feat[IMAGES[idx(a)]]||def,fb=feat[IMAGES[idx(b)]]||def,fc=feat[IMAGES[idx(c)]]||def;return fa[key]*wa+fb[key]*wb+fc[key]*wc;}
+function featureAt(i){return feat[IMAGES[idx(i)]]||{strength:.5,contrast:.4,sun:0,sunY:1};}
 
 function noiseBuffer(context,seconds=4){
   const b=context.createBuffer(1,Math.floor(context.sampleRate*seconds),context.sampleRate),d=b.getChannelData(0);let prev=0;
@@ -92,8 +92,20 @@ function apply(a,b,c,p){
 
   const clarity=clamp(strength*.78+contrast*.22,0,1);
   const energy=clamp(contrast*.70+strength*.30,0,1);
-  const normalized=clamp((.85-h)/.70,0,1);
-  const base=lerp(220,280,Math.pow(normalized,.80));
+
+  // Horizon pitch is driven by visual character, not vertical position.
+  // Contrast lifts the register; blur destabilises it; image-to-image differences create a transition glide.
+  const fb=featureAt(b),fc=featureAt(c);
+  const clarityB=clamp(fb.strength*.78+fb.contrast*.22,0,1);
+  const clarityC=clamp(fc.strength*.78+fc.contrast*.22,0,1);
+  const transitionDelta=clamp((clarityC-clarityB)*.58+(fc.contrast-fb.contrast)*.42,-1,1);
+  const transitionShape=Math.sin(Math.PI*clamp(p,0,1));
+  const transitionGlide=transitionDelta*25*transitionShape;
+  const contrastLift=contrast*30;
+  const driftAmount=(1-clarity)*8;
+  const drift=Math.sin(now*.62)*driftAmount+Math.sin(now*.23+1.7)*driftAmount*.35;
+  const base=235+contrastLift+drift+transitionGlide;
+
   const cutoff=lerp(900,2350,clarity);
   const principalLevel=lerp(.018,.032,energy);
 
@@ -102,15 +114,13 @@ function apply(a,b,c,p){
     const act=voiceActivation(clarity,voicePlan[i].threshold);
     activeEquivalent+=act;
     const level=i===0?principalLevel:principalLevel*lerp(.48,.78,energy)*act;
-    v.osc.frequency.setTargetAtTime(base,now,.52);
+    v.osc.frequency.setTargetAtTime(base,now,.48);
     v.osc.detune.setTargetAtTime(voicePlan[i].detune,now,.9);
     v.gain.gain.setTargetAtTime(level,now,.9);
     v.filter.frequency.setTargetAtTime(cutoff*lerp(.90,1.10,i/5),now,1.0);
     v.pan.pan.setTargetAtTime(voicePlan[i].pan*act,now,1.0);
   });
 
-  // Sun = soprano-like line growing harmonically out of the horn fundamental.
-  // Near horizon: around a major third. Higher/brighter: toward fifth and octave.
   const sunPresence=clamp((sun-.10)/.90,0,1);
   const height=1-clamp(sunY,0,1);
   const interval=lerp(1.25,lerp(1.50,2.00,height),sunPresence);
@@ -130,13 +140,13 @@ function apply(a,b,c,p){
   breathFilter.frequency.setTargetAtTime(lerp(820,1250,clarity),now,1.2);
   swellDepth.gain.setTargetAtTime(lerp(.012,.10,energy),now,1.2);
 
-  updateMonitor({h,base,strength,contrast,clarity,activeEquivalent,wet,sun:sunPresence,sunFreq,interval});
+  updateMonitor({h,base,strength,contrast,clarity,activeEquivalent,wet,sun:sunPresence,sunFreq,interval,contrastLift,drift,transitionGlide});
 }
 
 function updateMonitor(q){
   const parent=document.querySelector('#soundMonitor');if(!parent)return;
   parent.style.gridTemplateColumns='1fr';
-  parent.innerHTML=`<div><strong>HORIZON + SUN</strong><br>Horn base ${q.base.toFixed(1)} Hz · density ${q.activeEquivalent.toFixed(1)} / 6<br>Horizon clarity ${q.clarity.toFixed(3)}<br>Sun presence ${q.sun.toFixed(3)}${q.sun>.03?` · soprano ${q.sunFreq.toFixed(1)} Hz · ratio ${q.interval.toFixed(2)}×`:''}<br>Line strength ${q.strength.toFixed(3)} · Contrast ${q.contrast.toFixed(3)}<br>Shared space / reverb ${q.wet.toFixed(2)}</div>`;
+  parent.innerHTML=`<div><strong>HORIZON + SUN</strong><br>Horn base ${q.base.toFixed(1)} Hz · density ${q.activeEquivalent.toFixed(1)} / 6<br>Pitch: contrast +${q.contrastLift.toFixed(1)} Hz · drift ${q.drift.toFixed(1)} Hz · transition ${q.transitionGlide.toFixed(1)} Hz<br>Horizon clarity ${q.clarity.toFixed(3)}<br>Sun presence ${q.sun.toFixed(3)}${q.sun>.03?` · soprano ${q.sunFreq.toFixed(1)} Hz · ratio ${q.interval.toFixed(2)}×`:''}<br>Line strength ${q.strength.toFixed(3)} · Contrast ${q.contrast.toFixed(3)}<br>Shared space / reverb ${q.wet.toFixed(2)}</div>`;
 }
 
 async function analyseAll(){const entries=await Promise.all(IMAGES.map(async f=>[f,await analyse(f)]));entries.forEach(([k,v])=>feat[k]=v);}
