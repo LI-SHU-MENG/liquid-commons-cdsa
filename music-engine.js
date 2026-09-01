@@ -7,7 +7,7 @@ let ctx=null,master=null,horns=[],lows=[];
 let clarOsc=null,clarGain=null,clarFilter=null,clarPan=null,clarVib=null,clarVibDepth=null;
 let fluteOsc=null,fluteAirOsc=null,fluteGain=null,fluteAirGain=null,fluteFilter=null,flutePan=null;
 let breath=null,breathFilter=null,breathGain=null;
-let wetGain=null,delay=null,convolver=null,wetFilter=null,swell=null,swellDepth=null;
+let dryBus=null,wetBus=null,delay=null,convolver=null,wetFilter=null,swell=null,swellDepth=null;
 let running=false,playback=false,startMs=0,current=0;
 
 function horizons(){return JSON.parse(localStorage.getItem('liquidCommonsHorizons')||'{}');}
@@ -30,12 +30,12 @@ async function analyse(file){
       }
       strength=clamp((strength/w)/.20,0,1);
       contrast=clamp((contrast/w)/.30,0,1);
-      sky=clamp(sky/w,0,1); sea=clamp(sea/w,0,1);
+      sky=clamp(sky/w,0,1);sea=clamp(sea/w,0,1);
 
       let best=-1,bestY=hr;
       for(let y=3;y<hr-2;y++){
         for(let x=4;x<w-4;x++){
-          const center=lumAt(x,y); if(center<.62)continue;
+          const center=lumAt(x,y);if(center<.62)continue;
           let ring=0,n=0;
           for(let oy=-4;oy<=4;oy+=4){for(let ox=-4;ox<=4;ox+=4){if(ox===0&&oy===0)continue;ring+=lumAt(x+ox,y+oy);n++;}}
           const score=Math.max(0,center-ring/n)*1.65+Math.max(0,center-.62)*.72;
@@ -54,27 +54,29 @@ async function analyse(file){
 function weights(a,b,c,p){const A=.5*(1-p)*(1-p),B=.75-(p-.5)*(p-.5),C=.5*p*p,s=A+B+C;return[A/s,B/s,C/s];}
 function blendedFeature(a,b,c,p,key){const [wa,wb,wc]=weights(a,b,c,p);const def={strength:.5,contrast:.4,sky:.5,sea:.4,sun:0,sunY:1};const fa=feat[IMAGES[idx(a)]]||def,fb=feat[IMAGES[idx(b)]]||def,fc=feat[IMAGES[idx(c)]]||def;return fa[key]*wa+fb[key]*wb+fc[key]*wc;}
 function featureAt(i){return feat[IMAGES[idx(i)]]||{strength:.5,contrast:.4,sky:.5,sea:.4,sun:0,sunY:1};}
+function wave(context,partials){const real=new Float32Array(partials.length+1),imag=new Float32Array(partials.length+1);partials.forEach((v,i)=>imag[i+1]=v);return context.createPeriodicWave(real,imag,{disableNormalization:false});}
+function rise(x,t,w=.22){return clamp((x-t)/w,0,1);}
 
 function noiseBuffer(context,seconds=4){
   const b=context.createBuffer(1,Math.floor(context.sampleRate*seconds),context.sampleRate),d=b.getChannelData(0);let prev=0;
-  for(let i=0;i<d.length;i++){const white=Math.random()*2-1;prev=prev*.97+white*.03;d[i]=prev*.018;}
+  for(let i=0;i<d.length;i++){const white=Math.random()*2-1;prev=prev*.97+white*.03;d[i]=prev*.016;}
   return b;
 }
-function reverbBuffer(context,seconds=8.4,decay=4.0){
+function reverbBuffer(context,seconds=9.0,decay=4.2){
   const len=Math.floor(context.sampleRate*seconds),b=context.createBuffer(2,len,context.sampleRate);
-  for(let ch=0;ch<2;ch++){const d=b.getChannelData(ch);for(let i=0;i<len;i++){const t=i/len;d[i]=(Math.random()*2-1)*Math.pow(1-t,decay)*(0.50+Math.random()*.20);}}
+  for(let ch=0;ch<2;ch++){const d=b.getChannelData(ch);for(let i=0;i<len;i++){const t=i/len;d[i]=(Math.random()*2-1)*Math.pow(1-t,decay)*(0.46+Math.random()*.18);}}
   return b;
 }
-function wave(context,partials){const real=new Float32Array(partials.length+1),imag=new Float32Array(partials.length+1);partials.forEach((v,i)=>imag[i+1]=v);return context.createPeriodicWave(real,imag,{disableNormalization:false});}
 
 const hornPlan=[
-  {detune:0,pan:0,threshold:0},{detune:2,pan:-.16,threshold:.18},{detune:-2.5,pan:.16,threshold:.34},
-  {detune:4,pan:-.30,threshold:.50},{detune:-4.5,pan:.30,threshold:.66},{detune:5.5,pan:0,threshold:.82}
+  {detune:0,pan:0,threshold:0},{detune:1.5,pan:-.14,threshold:.18},{detune:-2,pan:.14,threshold:.34},
+  {detune:3,pan:-.27,threshold:.50},{detune:-3.5,pan:.27,threshold:.66},{detune:4.5,pan:0,threshold:.82}
 ];
 const lowPlan=[
-  {ratio:.50,pan:-.18,threshold:.20},{ratio:.50,pan:.18,threshold:.42},{ratio:.25,pan:0,threshold:.66}
+  {ratio:.50,pan:-.16,threshold:.18},{ratio:.50,pan:.16,threshold:.40},{ratio:.25,pan:0,threshold:.64}
 ];
-function rise(x,t,w=.22){return clamp((x-t)/w,0,1);}
+
+function nearestConsonantRatio(target,choices){return choices.reduce((best,r)=>Math.abs(r-target)<Math.abs(best-target)?r:best,choices[0]);}
 
 function apply(a,b,c,p){
   if(!ctx||ctx.state!=='running')return;
@@ -89,74 +91,82 @@ function apply(a,b,c,p){
   const clarity=clamp(strength*.76+contrast*.24,0,1);
   const brightness=clamp(sky*.62+sea*.18+contrast*.20,0,1);
   const darkness=1-brightness;
-  const energy=clamp(contrast*.58+strength*.25+darkness*.17,0,1);
+  const energy=clamp(contrast*.56+strength*.24+darkness*.20,0,1);
   const fb=featureAt(b),fc=featureAt(c);
   const cb=clamp(fb.strength*.76+fb.contrast*.24,0,1),cc=clamp(fc.strength*.76+fc.contrast*.24,0,1);
   const imageDelta=clamp((cc-cb)*.34+(fc.contrast-fb.contrast)*.26+(fc.sky-fb.sky)*.40,-1,1);
   const shape=Math.sin(Math.PI*clamp(p,0,1));
 
-  // Higher, softer horn body.
-  const base=262 + brightness*18 + contrast*10 + imageDelta*8*shape + Math.sin(now*.33)*(1-clarity)*1.8;
-  const hornCut=lerp(900,1550,clarity*.55+brightness*.45);
-  const principal=lerp(.012,.021,energy);
+  // Higher overall register, still soft and stable.
+  const base=286 + brightness*20 + contrast*12 + imageDelta*7*shape + Math.sin(now*.28)*(1-clarity)*1.2;
+  const hornCut=lerp(880,1500,clarity*.52+brightness*.48);
+  const principal=lerp(.0105,.0185,energy);
+
   let hornDensity=0;
   horns.forEach((v,i)=>{
-    const act=i===0?1:rise(clarity,hornPlan[i].threshold,.22); hornDensity+=act;
-    const level=i===0?principal:principal*lerp(.38,.58,energy)*act;
-    v.osc.frequency.setTargetAtTime(base,now,.90);
-    v.osc.detune.setTargetAtTime(hornPlan[i].detune,now,1.15);
-    v.gain.gain.setTargetAtTime(level,now,1.15);
-    v.filter.frequency.setTargetAtTime(hornCut*lerp(.96,1.04,i/5),now,1.25);
-    v.pan.pan.setTargetAtTime(hornPlan[i].pan*act,now,1.3);
+    const act=i===0?1:rise(clarity,hornPlan[i].threshold,.24);hornDensity+=act;
+    const level=i===0?principal:principal*lerp(.34,.52,energy)*act;
+    v.osc.frequency.setTargetAtTime(base,now,1.0);
+    v.osc.detune.setTargetAtTime(hornPlan[i].detune,now,1.3);
+    v.gain.gain.setTargetAtTime(level,now,1.25);
+    v.filter.frequency.setTargetAtTime(hornCut*lerp(.97,1.03,i/5),now,1.35);
+    v.pan.pan.setTargetAtTime(hornPlan[i].pan*act,now,1.4);
   });
 
-  // Darkness grows a low orchestral foundation: bassoon / low brass-like layers.
+  // Dark areas = more low instruments, but perceived farther away.
   let lowDensity=0;
   lows.forEach((v,i)=>{
-    const act=rise(darkness,lowPlan[i].threshold,.24); lowDensity+=act;
-    v.osc.frequency.setTargetAtTime(base*lowPlan[i].ratio,now,1.15);
-    v.gain.gain.setTargetAtTime(.012*act*lerp(.60,1.0,darkness),now,1.35);
-    v.filter.frequency.setTargetAtTime(lerp(480,850,1-darkness),now,1.45);
-    v.pan.pan.setTargetAtTime(lowPlan[i].pan*act,now,1.4);
+    const act=rise(darkness,lowPlan[i].threshold,.24);lowDensity+=act;
+    v.osc.frequency.setTargetAtTime(base*lowPlan[i].ratio,now,1.25);
+    v.gain.gain.setTargetAtTime(.0085*act*lerp(.55,.92,darkness),now,1.45);
+    v.filter.frequency.setTargetAtTime(lerp(430,760,brightness),now,1.55);
+    v.pan.pan.setTargetAtTime(lowPlan[i].pan*act,now,1.5);
   });
 
-  // Clarinet: higher, warm, long upward line.
+  // Clarinet stays consonant: major third / fourth / fifth, with smooth interpolation toward the nearest family tone.
   const morning=clamp(brightness*.72+contrast*.18+(1-sea)*.10,0,1);
-  const clarRatio=clamp(lerp(1.28,1.55,Math.pow(morning,.78))+Math.max(0,imageDelta)*.07*shape+Math.min(0,imageDelta)*.025*shape,1.27,1.57);
+  const rawClar=lerp(1.25,1.50,Math.pow(morning,.80))+imageDelta*.035*shape;
+  const clarAnchor=nearestConsonantRatio(rawClar,[1.25,1.333,1.50]);
+  const clarRatio=lerp(rawClar,clarAnchor,.58);
   const clarFreq=base*clarRatio;
-  clarOsc.frequency.setTargetAtTime(clarFreq,now,2.0);
-  clarGain.gain.setTargetAtTime(lerp(.0065,.0105,.45+morning*.55)*(1-sun*.15),now,1.6);
-  clarFilter.frequency.setTargetAtTime(lerp(1200,1850,brightness),now,1.7);
-  clarPan.pan.setTargetAtTime(clamp(imageDelta*.10,-.09,.09),now,1.9);
-  clarVibDepth.gain.setTargetAtTime(lerp(.08,.20,1-clarity),now,1.8);
+  clarOsc.frequency.setTargetAtTime(clarFreq,now,2.1);
+  clarGain.gain.setTargetAtTime(lerp(.0058,.0093,.40+morning*.60)*(1-sun*.12),now,1.75);
+  clarFilter.frequency.setTargetAtTime(lerp(1150,1750,brightness),now,1.85);
+  clarPan.pan.setTargetAtTime(clamp(imageDelta*.08,-.07,.07),now,2.0);
+  clarVibDepth.gain.setTargetAtTime(lerp(.06,.15,1-clarity),now,1.9);
 
-  // Sun = flute. Light, breathy, hopeful; fifth -> major sixth -> soft major seventh region, never piercing.
+  // Sun = flute, harmonically tied to the same field: fifth -> major sixth.
   const sunPresence=clamp((sun-.10)/.90,0,1);
   const height=1-clamp(sunY,0,1);
-  const fluteRatio=lerp(1.50,lerp(1.667,1.875,height),Math.pow(sunPresence,.78));
+  const fluteRatio=lerp(1.50,1.667,Math.pow(clamp(height*.65+sunPresence*.35,0,1),.85));
   const fluteFreq=base*fluteRatio;
-  const fluteLevel=.0075*Math.pow(sunPresence,1.30);
-  fluteOsc.frequency.setTargetAtTime(fluteFreq,now,1.35);
-  fluteAirOsc.frequency.setTargetAtTime(fluteFreq*2.0,now,1.35);
-  fluteGain.gain.setTargetAtTime(fluteLevel,now,1.45);
-  fluteAirGain.gain.setTargetAtTime(fluteLevel*.045,now,1.45);
-  fluteFilter.frequency.setTargetAtTime(lerp(1700,2700,sunPresence),now,1.55);
-  flutePan.pan.setTargetAtTime(lerp(-.03,.05,height),now,1.6);
+  const fluteLevel=.0066*Math.pow(sunPresence,1.35);
+  fluteOsc.frequency.setTargetAtTime(fluteFreq,now,1.45);
+  fluteAirOsc.frequency.setTargetAtTime(fluteFreq*2,now,1.45);
+  fluteGain.gain.setTargetAtTime(fluteLevel,now,1.55);
+  fluteAirGain.gain.setTargetAtTime(fluteLevel*.030,now,1.55);
+  fluteFilter.frequency.setTargetAtTime(lerp(1550,2300,sunPresence),now,1.65);
+  flutePan.pan.setTargetAtTime(lerp(-.02,.04,height),now,1.7);
 
-  const wet=lerp(.68,.82,darkness*.30+(1-clarity)*.24+sunPresence*.10);
-  wetGain.gain.setTargetAtTime(wet,now,1.5);
-  wetFilter.frequency.setTargetAtTime(lerp(900,1550,brightness),now,1.5);
-  breathGain.gain.setTargetAtTime(lerp(.00012,.000025,clarity),now,1.6);
-  breathFilter.frequency.setTargetAtTime(lerp(700,1000,brightness),now,1.6);
-  swellDepth.gain.setTargetAtTime(lerp(.006,.035,energy),now,1.7);
+  // Depth model: darker = quieter, wetter, darker; brighter = closer, clearer, drier.
+  const distance=clamp(darkness*.78+(1-clarity)*.22,0,1);
+  const dry=lerp(.82,.38,distance);
+  const wet=lerp(.44,.88,distance);
+  const distanceGain=lerp(1.0,.62,distance);
+  dryBus.gain.setTargetAtTime(dry*distanceGain,now,1.8);
+  wetBus.gain.setTargetAtTime(wet*distanceGain,now,1.8);
+  wetFilter.frequency.setTargetAtTime(lerp(1750,760,distance),now,1.8);
+  breathGain.gain.setTargetAtTime(lerp(.00008,.000018,clarity),now,1.8);
+  breathFilter.frequency.setTargetAtTime(lerp(900,650,distance),now,1.8);
+  swellDepth.gain.setTargetAtTime(lerp(.004,.022,energy),now,1.9);
 
-  updateMonitor({base,clarFreq,fluteFreq,sun:sunPresence,hornDensity,lowDensity,brightness,darkness,clarity,contrast});
+  updateMonitor({base,clarFreq,fluteFreq,sun:sunPresence,hornDensity,lowDensity,brightness,darkness,clarity,contrast,distance,dry,wet});
 }
 
 function updateMonitor(q){
-  const el=document.querySelector('#soundMonitor'); if(!el)return;
+  const el=document.querySelector('#soundMonitor');if(!el)return;
   el.style.gridTemplateColumns='1fr';
-  el.innerHTML=`<div><strong>HORIZON ORCHESTRA — SOFT MORNING</strong><br>Horn ${q.base.toFixed(1)} Hz · ${q.hornDensity.toFixed(1)} / 6<br>Low orchestra ${q.lowDensity.toFixed(1)} / 3 · darkness ${q.darkness.toFixed(2)}<br>Clarinet ${q.clarFreq.toFixed(1)} Hz<br>Sun flute ${q.sun.toFixed(2)}${q.sun>.03?` · ${q.fluteFreq.toFixed(1)} Hz`:''}<br>Brightness ${q.brightness.toFixed(2)} · clarity ${q.clarity.toFixed(2)} · contrast ${q.contrast.toFixed(2)}</div>`;
+  el.innerHTML=`<div><strong>HORIZON ORCHESTRA — DEPTH + HARMONY</strong><br>Horn ${q.base.toFixed(1)} Hz · ${q.hornDensity.toFixed(1)} / 6<br>Low orchestra ${q.lowDensity.toFixed(1)} / 3 · darkness ${q.darkness.toFixed(2)}<br>Clarinet ${q.clarFreq.toFixed(1)} Hz · Sun flute ${q.sun.toFixed(2)}${q.sun>.03?` · ${q.fluteFreq.toFixed(1)} Hz`:''}<br>Distance ${q.distance.toFixed(2)} · dry ${q.dry.toFixed(2)} · wet ${q.wet.toFixed(2)}<br>Brightness ${q.brightness.toFixed(2)} · clarity ${q.clarity.toFixed(2)} · contrast ${q.contrast.toFixed(2)}</div>`;
 }
 
 async function analyseAll(){const entries=await Promise.all(IMAGES.map(async f=>[f,await analyse(f)]));entries.forEach(([k,v])=>feat[k]=v);}
@@ -165,59 +175,58 @@ async function init(){
   if(ctx){await ctx.resume();running=true;return;}
   ctx=new (window.AudioContext||window.webkitAudioContext)();
   master=ctx.createGain();master.gain.value=.46;master.connect(ctx.destination);
+  dryBus=ctx.createGain();wetBus=ctx.createGain();dryBus.gain.value=.72;wetBus.gain.value=.58;dryBus.connect(master);
 
-  delay=ctx.createDelay(.9);delay.delayTime.value=.20;
+  delay=ctx.createDelay(.9);delay.delayTime.value=.22;
   convolver=ctx.createConvolver();convolver.buffer=reverbBuffer(ctx);
-  wetFilter=ctx.createBiquadFilter();wetFilter.type='lowpass';wetFilter.frequency.value=1250;wetFilter.Q.value=.18;
-  wetGain=ctx.createGain();wetGain.gain.value=.72;
-  delay.connect(convolver);convolver.connect(wetFilter);wetFilter.connect(wetGain);wetGain.connect(master);
+  wetFilter=ctx.createBiquadFilter();wetFilter.type='lowpass';wetFilter.frequency.value=1200;wetFilter.Q.value=.16;
+  wetBus.connect(delay);delay.connect(convolver);convolver.connect(wetFilter);wetFilter.connect(master);
 
-  const hornWave=wave(ctx,[1,.26,.13,.065,.030,.014,.007]);
+  const hornWave=wave(ctx,[1,.24,.11,.052,.024,.011,.005]);
   horns=hornPlan.map((plan,i)=>{
-    const osc=ctx.createOscillator();osc.setPeriodicWave(hornWave);osc.frequency.value=270;osc.detune.value=plan.detune;
-    const filter=ctx.createBiquadFilter();filter.type='lowpass';filter.frequency.value=1250;filter.Q.value=.20;
-    const gain=ctx.createGain();gain.gain.value=i===0?.012:.0001;
+    const osc=ctx.createOscillator();osc.setPeriodicWave(hornWave);osc.frequency.value=295;osc.detune.value=plan.detune;
+    const filter=ctx.createBiquadFilter();filter.type='lowpass';filter.frequency.value=1200;filter.Q.value=.18;
+    const gain=ctx.createGain();gain.gain.value=i===0?.011:.0001;
     const pan=ctx.createStereoPanner();pan.pan.value=plan.pan;
-    osc.connect(filter);filter.connect(gain);gain.connect(pan);pan.connect(master);pan.connect(delay);osc.start();
+    osc.connect(filter);filter.connect(gain);gain.connect(pan);pan.connect(dryBus);pan.connect(wetBus);osc.start();
     return {osc,filter,gain,pan};
   });
 
-  const lowWave=wave(ctx,[1,.34,.18,.09,.04,.018]);
+  const lowWave=wave(ctx,[1,.30,.14,.065,.028,.012]);
   lows=lowPlan.map(plan=>{
-    const osc=ctx.createOscillator();osc.setPeriodicWave(lowWave);osc.frequency.value=132;
-    const filter=ctx.createBiquadFilter();filter.type='lowpass';filter.frequency.value=620;filter.Q.value=.18;
+    const osc=ctx.createOscillator();osc.setPeriodicWave(lowWave);osc.frequency.value=145;
+    const filter=ctx.createBiquadFilter();filter.type='lowpass';filter.frequency.value=560;filter.Q.value=.16;
     const gain=ctx.createGain();gain.gain.value=.0001;
     const pan=ctx.createStereoPanner();pan.pan.value=plan.pan;
-    osc.connect(filter);filter.connect(gain);gain.connect(pan);pan.connect(master);pan.connect(delay);osc.start();
+    osc.connect(filter);filter.connect(gain);gain.connect(pan);pan.connect(dryBus);pan.connect(wetBus);osc.start();
     return {osc,filter,gain,pan};
   });
 
-  clarOsc=ctx.createOscillator();clarOsc.setPeriodicWave(wave(ctx,[1,0,.30,0,.11,0,.04,0,.015]));clarOsc.frequency.value=370;
+  clarOsc=ctx.createOscillator();clarOsc.setPeriodicWave(wave(ctx,[1,0,.27,0,.095,0,.032,0,.012]));clarOsc.frequency.value=390;
   clarGain=ctx.createGain();clarGain.gain.value=.0001;
-  clarFilter=ctx.createBiquadFilter();clarFilter.type='lowpass';clarFilter.frequency.value=1550;clarFilter.Q.value=.28;
-  clarPan=ctx.createStereoPanner();
-  clarOsc.connect(clarFilter);clarFilter.connect(clarGain);clarGain.connect(clarPan);clarPan.connect(master);clarPan.connect(delay);
+  clarFilter=ctx.createBiquadFilter();clarFilter.type='lowpass';clarFilter.frequency.value=1500;clarFilter.Q.value=.24;
+  clarPan=ctx.createStereoPanner();clarPan.pan.value=0;
+  clarOsc.connect(clarFilter);clarFilter.connect(clarGain);clarGain.connect(clarPan);clarPan.connect(dryBus);clarPan.connect(wetBus);
   clarVib=ctx.createOscillator();clarVib.type='sine';clarVib.frequency.value=4.0;
-  clarVibDepth=ctx.createGain();clarVibDepth.gain.value=.12;clarVib.connect(clarVibDepth);clarVibDepth.connect(clarOsc.frequency);
+  clarVibDepth=ctx.createGain();clarVibDepth.gain.value=.10;clarVib.connect(clarVibDepth);clarVibDepth.connect(clarOsc.frequency);
   clarOsc.start();clarVib.start();
 
-  // Flute-like: strong fundamental, very restrained upper partials + a tiny airy layer.
-  fluteOsc=ctx.createOscillator();fluteOsc.setPeriodicWave(wave(ctx,[1,.10,.035,.012,.005]));fluteOsc.frequency.value=440;
-  fluteAirOsc=ctx.createOscillator();fluteAirOsc.type='sine';fluteAirOsc.frequency.value=880;
+  fluteOsc=ctx.createOscillator();fluteOsc.setPeriodicWave(wave(ctx,[1,.07,.025,.010,.004]));fluteOsc.frequency.value=470;
+  fluteAirOsc=ctx.createOscillator();fluteAirOsc.type='sine';fluteAirOsc.frequency.value=940;
   fluteGain=ctx.createGain();fluteGain.gain.value=.0001;
   fluteAirGain=ctx.createGain();fluteAirGain.gain.value=.0001;
-  fluteFilter=ctx.createBiquadFilter();fluteFilter.type='lowpass';fluteFilter.frequency.value=2200;fluteFilter.Q.value=.16;
-  flutePan=ctx.createStereoPanner();
-  fluteOsc.connect(fluteGain);fluteAirOsc.connect(fluteAirGain);fluteGain.connect(fluteFilter);fluteAirGain.connect(fluteFilter);fluteFilter.connect(flutePan);flutePan.connect(master);flutePan.connect(delay);
+  fluteFilter=ctx.createBiquadFilter();fluteFilter.type='lowpass';fluteFilter.frequency.value=1900;fluteFilter.Q.value=.16;
+  flutePan=ctx.createStereoPanner();flutePan.pan.value=0;
+  fluteOsc.connect(fluteGain);fluteAirOsc.connect(fluteAirGain);fluteGain.connect(fluteFilter);fluteAirGain.connect(fluteFilter);fluteFilter.connect(flutePan);flutePan.connect(dryBus);flutePan.connect(wetBus);
   fluteOsc.start();fluteAirOsc.start();
 
   breath=ctx.createBufferSource();breath.buffer=noiseBuffer(ctx);breath.loop=true;
-  breathFilter=ctx.createBiquadFilter();breathFilter.type='bandpass';breathFilter.frequency.value=820;breathFilter.Q.value=.30;
-  breathGain=ctx.createGain();breathGain.gain.value=.00006;
-  breath.connect(breathFilter);breathFilter.connect(breathGain);breathGain.connect(delay);breath.start();
+  breathFilter=ctx.createBiquadFilter();breathFilter.type='bandpass';breathFilter.frequency.value=760;breathFilter.Q.value=.35;
+  breathGain=ctx.createGain();breathGain.gain.value=.00005;
+  breath.connect(breathFilter);breathFilter.connect(breathGain);breathGain.connect(wetBus);breath.start();
 
   swell=ctx.createOscillator();swell.type='sine';swell.frequency.value=.070;
-  swellDepth=ctx.createGain();swellDepth.gain.value=.018;swell.connect(swellDepth);swellDepth.connect(master.gain);swell.start();
+  swellDepth=ctx.createGain();swellDepth.gain.value=.010;swell.connect(swellDepth);swellDepth.connect(master.gain);swell.start();
 
   await ctx.resume();running=true;await analyseAll();applyCurrent();
 }
@@ -235,11 +244,11 @@ function loop(t){
 
 const oldBtn=document.querySelector('#soundProxy');
 if(oldBtn){
-  const clone=oldBtn.cloneNode(true);oldBtn.replaceWith(clone);clone.textContent='Start soft horizon orchestra';
+  const clone=oldBtn.cloneNode(true);oldBtn.replaceWith(clone);clone.textContent='Start horizon orchestra';
   clone.addEventListener('click',async()=>{
-    if(!ctx){await init();clone.textContent='Soft orchestra: on';}
-    else if(ctx.state==='running'){await ctx.suspend();clone.textContent='Soft orchestra: off';}
-    else{await ctx.resume();clone.textContent='Soft orchestra: on';applyCurrent();}
+    if(!ctx){await init();clone.textContent='Horizon orchestra: on';}
+    else if(ctx.state==='running'){await ctx.suspend();clone.textContent='Horizon orchestra: off';}
+    else{await ctx.resume();clone.textContent='Horizon orchestra: on';applyCurrent();}
   });
 }
 document.querySelector('#nextBtn')?.addEventListener('click',()=>setTimeout(applyCurrent,0));
